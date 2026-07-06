@@ -97,6 +97,13 @@ function displayName(p) {
   return escapeHtml(p.nickname || p.name || "?");
 }
 
+// Prefijo con la insignia de capitán, para mostrar junto al nombre en
+// pantallas donde tiene sentido (plantel, quién sos, confirmados).
+function displayNameWithCaptain(p) {
+  if (!p) return "?";
+  return (p.isCaptain ? "🎖️ " : "") + displayName(p);
+}
+
 function pad(n) { return String(n).padStart(2, "0"); }
 
 // Argentina no tiene horario de verano desde 2009: siempre UTC-3.
@@ -365,6 +372,28 @@ window.togglePlayerActive = function (playerId, active) {
   });
 };
 
+// Solo puede haber un capitán a la vez: al designar uno nuevo, se le
+// quita la insignia a quien la tuviera antes (en el mismo batch).
+window.setCaptain = function (playerId) {
+  runAction(async () => {
+    const batch = writeBatch(db);
+    for (const p of state.players) {
+      if (p.isCaptain && p.id !== playerId) {
+        batch.update(doc(db, "players", p.id), { isCaptain: false });
+      }
+    }
+    batch.update(doc(db, "players", playerId), { isCaptain: true });
+    await batch.commit();
+    showToast("Nuevo capitán designado.");
+  });
+};
+
+window.unsetCaptain = function (playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { isCaptain: false });
+  });
+};
+
 window.createOrUpdateMatch = function (matchId, date, opponent, sede) {
   runAction(async () => {
     if (!date) throw new Error("Falta la fecha y hora.");
@@ -448,6 +477,16 @@ window.deleteGoal = function (matchId, goalId) {
   runAction(async () => { await deleteDoc(doc(db, "matches", matchId, "goals", goalId)); });
 };
 
+// "Figura del partido": un campo más en el propio documento del partido
+// (no hace falta una colección aparte), así que ya viaja con el resto de
+// los datos de "matches" que están siempre en memoria.
+window.setMotm = function (matchId, playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "matches", matchId), { motmPlayerId: playerId || null });
+    showToast("Figura del partido guardada.");
+  });
+};
+
 window.addCard = function (matchId, playerId, type) {
   runAction(async () => {
     if (!playerId) throw new Error("Falta elegir el jugador.");
@@ -527,7 +566,7 @@ function renderQuienSos() {
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
           ${activos.map((p) => `
             <button onclick="selectPlayer('${p.id}')" class="rounded-xl bg-white p-3 text-center text-sm font-medium text-gray-800 shadow-sm hover:bg-club-green hover:text-white">
-              ${displayName(p)}
+              ${displayNameWithCaptain(p)}
             </button>
           `).join("")}
         </div>
@@ -585,7 +624,7 @@ function renderDashboard() {
           <h3 class="mb-3 font-semibold text-gray-900">Confirmados (${confirmados.length})</h3>
           ${confirmados.length === 0 ? `<p class="text-sm text-gray-400">Todavía no confirmó nadie.</p>` : `
             <ul class="space-y-1.5">
-              ${confirmados.map((v) => `<li class="text-sm text-gray-800">✓ ${displayName(state.playersById[v.id])}</li>`).join("")}
+              ${confirmados.map((v) => `<li class="text-sm text-gray-800">✓ ${displayNameWithCaptain(state.playersById[v.id])}</li>`).join("")}
             </ul>
           `}
         </div>
@@ -613,10 +652,16 @@ function renderAdminPlantel() {
         <ul class="space-y-1.5">
           ${state.players.map((p) => `
             <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
-              <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayName(p)}</span>
-              <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
-                ${p.active === false ? "Reactivar" : "Dar de baja"}
-              </button>
+              <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayNameWithCaptain(p)}</span>
+              <span class="flex items-center gap-3">
+                ${p.isCaptain
+                  ? `<button onclick="unsetCaptain('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar capitanía</button>`
+                  : `<button onclick="setCaptain('${p.id}')" class="text-xs text-club-green hover:underline">Designar capitán</button>`
+                }
+                <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
+                  ${p.active === false ? "Reactivar" : "Dar de baja"}
+                </button>
+              </span>
             </li>
           `).join("")}
         </ul>
@@ -750,6 +795,14 @@ function renderAdminPartidoDetalle(matchId) {
       </div>
 
       <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">🏅 Figura del partido</h3>
+        <select onchange="setMotm('${matchId}', this.value)" class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+          <option value="">Sin elegir</option>
+          ${playerOptions.map((p) => `<option value="${p.id}" ${match.motmPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+        </select>
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
         <h3 class="mb-3 font-semibold text-gray-900">Goles</h3>
         <div class="mb-4">
           ${goals.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay goles cargados.</p>` : `
@@ -806,12 +859,47 @@ function renderAdminPartidoDetalle(matchId) {
   `;
 }
 
+// La figura del partido vive como campo en el propio documento del
+// partido (matches.motmPlayerId), y los partidos ya están siempre en
+// memoria por el listener en vivo — no hace falta pedirle nada más a
+// Firestore para armar este ranking.
+function motmRanking() {
+  const counts = new Map();
+  for (const m of state.matches) {
+    if (m.status !== "JUGADO" || !m.motmPlayerId) continue;
+    const entry = counts.get(m.motmPlayerId) || { id: m.motmPlayerId, count: 0 };
+    entry.count += 1;
+    counts.set(m.motmPlayerId, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
 function renderEstadisticas() {
   if (!state.stats && !state.statsLoading) loadStats();
   const s = state.stats;
+  const capitan = state.players.find((p) => p.isCaptain);
+  const figuras = motmRanking();
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
-      <h1 class="text-xl font-bold text-gray-900">Estadísticas históricas</h1>
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">Estadísticas históricas</h1>
+        ${capitan ? `<p class="mt-1 text-sm text-gray-600">🎖️ Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
+      </div>
+
+      <section class="rounded-2xl bg-white p-5 shadow-sm">
+        <h2 class="mb-3 font-semibold text-gray-900">🏅 Figuras del partido</h2>
+        ${figuras.length === 0 ? `<p class="text-sm text-gray-400">Todavía no se eligió ninguna figura.</p>` : `
+          <ol class="space-y-1.5">
+            ${figuras.map((f, i) => `
+              <li class="flex justify-between text-sm">
+                <span class="text-gray-800">${i + 1}. ${displayName(state.playersById[f.id])}</span>
+                <span class="font-medium text-gray-900">${f.count}</span>
+              </li>
+            `).join("")}
+          </ol>
+        `}
+      </section>
+
       ${!s ? `<p class="text-sm text-gray-400">Cargando…</p>` : `
         <section class="rounded-2xl bg-white p-5 shadow-sm">
           <h2 class="mb-3 font-semibold text-gray-900">⚽ Goleadores</h2>
