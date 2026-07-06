@@ -81,6 +81,13 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
 
+// Nombre del torneo actual, solo para mostrarlo en la pantalla de
+// Estadísticas junto a la tabla de posiciones. Cuando cambie el torneo,
+// actualizá este texto Y el número de torneo en api/standings.js (son dos
+// lugares separados porque uno vive en el navegador y el otro en el
+// servidor) — ver README.md.
+const TORNEO_NOMBRE = "Copa de Oro B4";
+
 // -------------------------------------------------------------------------
 // Utilidades
 // -------------------------------------------------------------------------
@@ -917,13 +924,15 @@ function renderEstadisticas() {
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
       <div>
-        <h1 class="text-xl font-bold text-gray-900">Estadísticas históricas</h1>
-        ${capitan ? `<p class="mt-1 text-sm text-gray-600">🎖️ Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
+        <h1 class="text-xl font-bold text-gray-900">Liga</h1>
       </div>
 
       <section class="rounded-2xl bg-white p-5 shadow-sm">
         <div class="mb-3 flex items-center justify-between">
-          <h2 class="font-semibold text-gray-900">📊 Tabla de posiciones</h2>
+          <div>
+            <h2 class="font-semibold text-gray-900">📊 Tabla de posiciones</h2>
+            <p class="text-xs text-gray-400">${escapeHtml(TORNEO_NOMBRE)} — Liga Vasco Germana</p>
+          </div>
           ${state.isAdmin ? `
             <button onclick="refreshStandings()" ${state.standingsRefreshing ? "disabled" : ""} class="btn text-xs text-club-green hover:underline disabled:opacity-50">
               ${state.standingsRefreshing ? "Actualizando…" : "Actualizar tabla"}
@@ -963,6 +972,12 @@ function renderEstadisticas() {
           </p>
         `}
       </section>
+
+      <div class="pt-2">
+        <h1 class="text-xl font-bold text-gray-900">Estadísticas históricas</h1>
+        <p class="text-xs text-gray-400">Se van acumulando partido a partido, no dependen del torneo actual.</p>
+        ${capitan ? `<p class="mt-1 text-sm text-gray-600">🎖️ Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
+      </div>
 
       <section class="rounded-2xl bg-white p-5 shadow-sm">
         <h2 class="mb-3 font-semibold text-gray-900">🏅 Figuras del partido</h2>
