@@ -172,6 +172,8 @@ const state = {
   detailCards: [],
   stats: null, // {goleadores, asistencias, tarjetas}
   statsLoading: false,
+  standings: null, // {rows, fetchedAt} — tabla de posiciones de la liga
+  standingsRefreshing: false,
 };
 
 function currentPlayer() {
@@ -197,6 +199,11 @@ function route() {
 // Listeners en vivo (se arrancan una vez que hay sesión anónima)
 // -------------------------------------------------------------------------
 function startListeners() {
+  onSnapshot(doc(db, "config", "standings"), (snap) => {
+    state.standings = snap.exists() ? snap.data() : null;
+    route();
+  }, (err) => console.error("standings listener:", err));
+
   onSnapshot(query(collection(db, "players"), orderBy("name")), (snap) => {
     state.players = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     state.playersById = Object.fromEntries(state.players.map((p) => [p.id, p]));
@@ -498,6 +505,34 @@ window.addCard = function (matchId, playerId, type) {
 
 window.deleteCard = function (matchId, cardId) {
   runAction(async () => { await deleteDoc(doc(db, "matches", matchId, "cards", cardId)); });
+};
+
+// Trae la tabla de posiciones de la liga (vía la función serverless
+// api/standings.js, el único "pedacito de servidor" de todo el proyecto —
+// hace falta porque el sitio de la liga no se puede leer directo desde el
+// navegador de cada jugador) y la guarda en Firestore para que la vea
+// todo el mundo sin tener que volver a pedirla.
+window.refreshStandings = function () {
+  state.standingsRefreshing = true;
+  route();
+  runAction(async () => {
+    let data;
+    try {
+      const res = await fetch("/api/standings");
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || "No se pudo traer la tabla de la liga.");
+    } catch (err) {
+      throw new Error(
+        (err && err.message) ||
+          "No se pudo contactar a la liga. Puede ser algo temporal — probá de nuevo en un rato."
+      );
+    }
+    await setDoc(doc(db, "config", "standings"), { rows: data.rows, fetchedAt: serverTimestamp() });
+    showToast("Tabla de posiciones actualizada.");
+  }).then(() => {
+    state.standingsRefreshing = false;
+    route();
+  });
 };
 
 window.goToStats = function () {
@@ -885,6 +920,49 @@ function renderEstadisticas() {
         <h1 class="text-xl font-bold text-gray-900">Estadísticas históricas</h1>
         ${capitan ? `<p class="mt-1 text-sm text-gray-600">🎖️ Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
       </div>
+
+      <section class="rounded-2xl bg-white p-5 shadow-sm">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="font-semibold text-gray-900">📊 Tabla de posiciones</h2>
+          ${state.isAdmin ? `
+            <button onclick="refreshStandings()" ${state.standingsRefreshing ? "disabled" : ""} class="btn text-xs text-club-green hover:underline disabled:opacity-50">
+              ${state.standingsRefreshing ? "Actualizando…" : "Actualizar tabla"}
+            </button>
+          ` : ""}
+        </div>
+        ${!state.standings || !state.standings.rows || state.standings.rows.length === 0 ? `
+          <p class="text-sm text-gray-400">
+            Todavía no se cargó la tabla de la liga.
+            ${state.isAdmin ? " Tocá \"Actualizar tabla\" para traerla." : ""}
+          </p>
+        ` : `
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-xs text-gray-500">
+                  <th class="py-1 pr-2">#</th><th class="py-1 pr-2">Equipo</th>
+                  <th class="py-1 px-1 text-center">Pts</th><th class="py-1 px-1 text-center">PJ</th>
+                  <th class="py-1 px-1 text-center">DG</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${state.standings.rows.map((r) => `
+                  <tr class="${/klee/i.test(r.team) ? "bg-green-50 font-semibold text-club-green" : "text-gray-800"}">
+                    <td class="py-1 pr-2">${r.pos}</td>
+                    <td class="py-1 pr-2">${escapeHtml(r.team)}</td>
+                    <td class="py-1 px-1 text-center">${r.pts}</td>
+                    <td class="py-1 px-1 text-center">${r.pj}</td>
+                    <td class="py-1 px-1 text-center">${r.dg}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+          <p class="mt-2 text-xs text-gray-400">
+            Última actualización: ${state.standings.fetchedAt ? fmtShort.format(tsToDate(state.standings.fetchedAt)) : "?"}
+          </p>
+        `}
+      </section>
 
       <section class="rounded-2xl bg-white p-5 shadow-sm">
         <h2 class="mb-3 font-semibold text-gray-900">🏅 Figuras del partido</h2>
