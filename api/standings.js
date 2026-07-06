@@ -19,6 +19,7 @@
 const https = require("https");
 
 const POSITIONS_URL = "https://api.alenta.me/widgets/categories/11976/positions";
+const SCORERS_URL = "https://api.alenta.me/widgets/categories/11976/scorers?limit=5";
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
@@ -72,8 +73,14 @@ function fetchJson(targetUrl, redirectsLeft = 5) {
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   try {
-    const json = await fetchJson(POSITIONS_URL);
-    const teams = json && Array.isArray(json.teams) ? json.teams : null;
+    const [positionsJson, scorersJson] = await Promise.all([
+      fetchJson(POSITIONS_URL),
+      // Si esto puntual falla, no queremos perder la tabla de posiciones
+      // por eso — devolvemos una lista vacía de goleadores en ese caso.
+      fetchJson(SCORERS_URL).catch(() => null),
+    ]);
+
+    const teams = positionsJson && Array.isArray(positionsJson.teams) ? positionsJson.teams : null;
     if (!teams || teams.length === 0) {
       res.status(502).json({ error: "La liga no devolvió ningún equipo en la tabla de posiciones." });
       return;
@@ -95,7 +102,19 @@ module.exports = async (req, res) => {
             : (Number(t.goals_for) || 0) - (Number(t.goals_against) || 0),
       }))
       .sort((a, b) => a.pos - b.pos);
-    res.status(200).json({ rows, fetchedAt: new Date().toISOString() });
+
+    const players = scorersJson && Array.isArray(scorersJson.players) ? scorersJson.players : [];
+    const scorers = players
+      .map((p) => ({
+        name: String(p.name || "").trim(),
+        team: String(p.team || "").trim(),
+        goals: Number(p.goals) || 0,
+      }))
+      .sort((a, b) => b.goals - a.goals)
+      .slice(0, 5)
+      .map((p, i) => ({ pos: i + 1, ...p }));
+
+    res.status(200).json({ rows, scorers, fetchedAt: new Date().toISOString() });
   } catch (err) {
     res.status(502).json({ error: (err && err.message) || "Error desconocido consultando la liga." });
   }

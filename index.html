@@ -514,11 +514,11 @@ window.deleteCard = function (matchId, cardId) {
   runAction(async () => { await deleteDoc(doc(db, "matches", matchId, "cards", cardId)); });
 };
 
-// Trae la tabla de posiciones de la liga (vía la función serverless
-// api/standings.js, el único "pedacito de servidor" de todo el proyecto —
-// hace falta porque el sitio de la liga no se puede leer directo desde el
-// navegador de cada jugador) y la guarda en Firestore para que la vea
-// todo el mundo sin tener que volver a pedirla.
+// Trae la tabla de posiciones Y el top de goleadores de la liga (vía la
+// función serverless api/standings.js, el único "pedacito de servidor" de
+// todo el proyecto — hace falta porque el sitio de la liga no se puede
+// leer directo desde el navegador de cada jugador) y los guarda en
+// Firestore para que los vea todo el mundo sin tener que volver a pedirlos.
 window.refreshStandings = function () {
   state.standingsRefreshing = true;
   route();
@@ -534,8 +534,12 @@ window.refreshStandings = function () {
           "No se pudo contactar a la liga. Puede ser algo temporal — probá de nuevo en un rato."
       );
     }
-    await setDoc(doc(db, "config", "standings"), { rows: data.rows, fetchedAt: serverTimestamp() });
-    showToast("Tabla de posiciones actualizada.");
+    await setDoc(doc(db, "config", "standings"), {
+      rows: data.rows,
+      scorers: data.scorers || [],
+      fetchedAt: serverTimestamp(),
+    });
+    showToast("Tabla de posiciones y goleadores actualizados.");
   }).then(() => {
     state.standingsRefreshing = false;
     route();
@@ -970,6 +974,26 @@ function renderEstadisticas() {
           <p class="mt-2 text-xs text-gray-400">
             Última actualización: ${state.standings.fetchedAt ? fmtShort.format(tsToDate(state.standings.fetchedAt)) : "?"}
           </p>
+        `}
+      </section>
+
+      <section class="rounded-2xl bg-white p-5 shadow-sm">
+        <h2 class="font-semibold text-gray-900">⚽ Goleadores de la liga</h2>
+        <p class="mb-3 text-xs text-gray-400">${escapeHtml(TORNEO_NOMBRE)} — se actualiza junto con la tabla de posiciones</p>
+        ${!state.standings || !state.standings.scorers || state.standings.scorers.length === 0 ? `
+          <p class="text-sm text-gray-400">
+            Todavía no se cargaron los goleadores de la liga.
+            ${state.isAdmin ? " Tocá \"Actualizar tabla\" arriba para traerlos." : ""}
+          </p>
+        ` : `
+          <ol class="space-y-1.5">
+            ${state.standings.scorers.map((g) => `
+              <li class="flex justify-between text-sm ${/klee/i.test(g.team) ? "font-semibold text-club-green" : "text-gray-800"}">
+                <span>${g.pos}. ${escapeHtml(g.name)} <span class="text-xs text-gray-400">(${escapeHtml(g.team)})</span></span>
+                <span class="font-medium">${g.goals}</span>
+              </li>
+            `).join("")}
+          </ol>
         `}
       </section>
 
