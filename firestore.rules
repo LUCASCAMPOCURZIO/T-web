@@ -1,0 +1,82 @@
+rules_version = '2';
+
+// Reglas de seguridad de Firestore para El Trébol FC.
+//
+// No hay contraseñas por jugador (se identifican eligiendo su nombre, igual
+// que antes). El acceso de administrador sigue siendo un PIN compartido,
+// pero ahora la comparación la hace el propio servidor de Firestore (estas
+// reglas corren en los servidores de Google, nunca en el navegador), así que
+// el PIN nunca queda expuesto en el código ni en los datos públicos.
+//
+// Cómo funciona el PIN sin backend propio:
+// 1. Todos los que entran a la app quedan "anónimamente autenticados" por
+//    Firebase (esto es automático, no requiere ni login ni contraseña de
+//    Google/Firebase de parte de los jugadores).
+// 2. Cuando alguien pone el PIN correcto, la app intenta crear un documento
+//    en adminSessions/<su-id-anonimo>. Esa creación solo se permite si el
+//    PIN que mandó coincide con el guardado en config/admin. Si coincide,
+//    a partir de ahí ese navegador "es admin" (mientras exista ese
+//    documento); si no coincide, la operación es rechazada.
+// 3. El documento config/admin no lo puede leer ni escribir nadie desde la
+//    app (ver más abajo) — Lucas lo carga una única vez a mano desde la
+//    consola de Firebase.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/adminSessions/$(request.auth.uid));
+    }
+
+    // El PIN vive acá. Nadie puede leerlo ni escribirlo desde la app: Lucas
+    // crea este documento una sola vez a mano en la consola de Firebase
+    // (colección "config", documento con ID "admin", campo "pin").
+    match /config/{docId} {
+      allow read, write: if false;
+    }
+
+    // "Sesión de administrador" por navegador: un documento por usuario
+    // anónimo de Firebase. Solo se puede crear/actualizar si el PIN
+    // enviado coincide con config/admin. Cada quien únicamente puede leer,
+    // crear o borrar SU PROPIO documento (para poder cerrar sesión).
+    match /adminSessions/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.pin == get(/databases/$(database)/documents/config/admin).data.pin;
+    }
+
+    // Plantel: cualquiera lo puede ver (para elegir su nombre y votar),
+    // pero solo un admin puede agregar, editar o dar de baja jugadores.
+    match /players/{playerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Partidos: cualquiera los puede ver. Crear/editar/marcar jugado/
+    // cancelar/borrar un partido requiere ser admin.
+    match /matches/{matchId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      // Votos de asistencia: cualquiera que haya elegido su nombre puede
+      // marcar su propio voto (mismo nivel de confianza que la versión
+      // anterior de la app: no hay contraseña por jugador).
+      match /votes/{playerId} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+
+      // Goles y tarjetas: solo un admin los carga o borra, después de
+      // marcar el partido como jugado.
+      match /goals/{goalId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      match /cards/{cardId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+  }
+}

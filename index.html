@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>El Trébol FC</title>
+
+<!-- PWA: instalable en la pantalla de inicio -->
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0b6e2c" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="El Trébol FC" />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          "club-green": "#0b6e2c",
+          "club-dark": "#0a1f14",
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  body { background-color: #f5f5f4; }
+  .btn { transition: opacity .15s ease; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+</style>
+</head>
+<body class="min-h-screen">
+  <div id="navbar"></div>
+  <main id="app" class="mx-auto max-w-2xl space-y-6 px-4 py-6"></main>
+  <div id="toast" class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4"></div>
+
+<script type="module">
+/* =========================================================================
+   El Trébol FC — app de un solo archivo (HTML + CSS + JS), sin servidor
+   propio: los datos viven en Firebase Firestore y el hosting es estático
+   (Vercel/GitHub Pages/lo que sea). Para actualizar la app en el futuro,
+   alcanza con reemplazar este archivo.
+
+   No hay contraseña por jugador (se elige el nombre de una lista, como
+   antes). El acceso de administrador es un PIN compartido, verificado por
+   las reglas de seguridad de Firestore (ver firestore.rules) — el PIN
+   nunca se guarda ni se expone en este archivo.
+   ========================================================================= */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+import {
+  getFirestore, collection, collectionGroup, doc, getDoc, getDocs, setDoc,
+  addDoc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy,
+  serverTimestamp, writeBatch,
+} from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+import {
+  getAuth, signInAnonymously, onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
+
+// -------------------------------------------------------------------------
+// CONFIGURACIÓN DE FIREBASE
+// Estos valores NO son secretos (están pensados para ir en el código del
+// cliente); la seguridad real la dan las reglas de Firestore, no que esto
+// esté "escondido". Se completan una sola vez, al crear el proyecto de
+// Firebase — ver README.md.
+// -------------------------------------------------------------------------
+const firebaseConfig = {
+  apiKey: "AIzaSyB6C0ZgLExepMTC4583TSPpzmemgRUB7qc",
+  authDomain: "trebol-fc.firebaseapp.com",
+  projectId: "trebol-fc",
+  storageBucket: "trebol-fc.firebasestorage.app",
+  messagingSenderId: "942872703021",
+  appId: "1:942872703021:web:6cde90435253e7873c48a4",
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+const auth = getAuth(firebaseApp);
+
+// -------------------------------------------------------------------------
+// Utilidades
+// -------------------------------------------------------------------------
+const PLAYER_KEY = "trebol_player_id";
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function displayName(p) {
+  if (!p) return "?";
+  return escapeHtml(p.nickname || p.name || "?");
+}
+
+function pad(n) { return String(n).padStart(2, "0"); }
+
+// Argentina no tiene horario de verano desde 2009: siempre UTC-3.
+function toBAInputValue(jsDate) {
+  const ba = new Date(jsDate.getTime() - 3 * 60 * 60 * 1000);
+  return `${ba.getUTCFullYear()}-${pad(ba.getUTCMonth() + 1)}-${pad(ba.getUTCDate())}T${pad(ba.getUTCHours())}:${pad(ba.getUTCMinutes())}`;
+}
+
+function fromBAInputValue(value) {
+  const [datePart, timePart] = value.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, hh + 3, mm, 0));
+}
+
+const fmtShort = new Intl.DateTimeFormat("es-AR", {
+  weekday: "short", day: "numeric", month: "short",
+  hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires",
+});
+const fmtLong = new Intl.DateTimeFormat("es-AR", {
+  weekday: "long", day: "numeric", month: "long", timeZone: "America/Argentina/Buenos_Aires",
+});
+
+function tsToDate(ts) {
+  return ts && typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
+}
+
+function showToast(message, kind) {
+  const el = document.createElement("div");
+  el.className =
+    "pointer-events-auto rounded-lg px-4 py-2 text-sm font-medium text-white shadow-lg " +
+    (kind === "error" ? "bg-red-600" : "bg-club-green");
+  el.textContent = message;
+  document.getElementById("toast").appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+async function runAction(fn) {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(err);
+    const msg = err && err.code === "permission-denied"
+      ? "No tenés permiso para hacer esto (¿se cerró tu sesión de admin?)."
+      : (err && err.message) || "Ocurrió un error.";
+    showToast(msg, "error");
+  }
+}
+
+// -------------------------------------------------------------------------
+// Estado global en memoria, alimentado por listeners en vivo de Firestore.
+// -------------------------------------------------------------------------
+const state = {
+  ready: false,
+  uid: null,
+  isAdmin: false,
+  playerId: localStorage.getItem(PLAYER_KEY) || null,
+  players: [],
+  playersById: {},
+  matches: [],
+  nextMatch: null,
+  recentMatches: [],
+  votesByMatch: {}, // matchId -> array of vote docs {id(=playerId), response, ...}
+  detailMatchId: null,
+  detailGoals: [],
+  detailCards: [],
+  stats: null, // {goleadores, asistencias, tarjetas}
+  statsLoading: false,
+};
+
+function currentPlayer() {
+  return state.playersById[state.playerId] || null;
+}
+
+// -------------------------------------------------------------------------
+// Router muy simple basado en location.hash
+// -------------------------------------------------------------------------
+function navigate(hash) {
+  if (location.hash === hash) { route(); } else { location.hash = hash; }
+}
+window.navigate = navigate;
+
+window.addEventListener("hashchange", route);
+
+function route() {
+  const hash = location.hash || "#/";
+  render(hash);
+}
+
+// -------------------------------------------------------------------------
+// Listeners en vivo (se arrancan una vez que hay sesión anónima)
+// -------------------------------------------------------------------------
+function startListeners() {
+  onSnapshot(query(collection(db, "players"), orderBy("name")), (snap) => {
+    state.players = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    state.playersById = Object.fromEntries(state.players.map((p) => [p.id, p]));
+    route();
+  }, (err) => console.error("players listener:", err));
+
+  // Traemos todos los partidos ordenados por fecha (son pocos por año) y
+  // derivamos "próximo" / "recientes" en el cliente: así evitamos tener que
+  // crear índices compuestos en Firestore.
+  onSnapshot(query(collection(db, "matches"), orderBy("date", "desc")), (snap) => {
+    state.matches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const programados = state.matches
+      .filter((m) => m.status === "PROGRAMADO")
+      .sort((a, b) => tsToDate(a.date) - tsToDate(b.date));
+    state.nextMatch = programados[0] || null;
+    state.recentMatches = state.matches
+      .filter((m) => m.status === "JUGADO" || m.status === "CANCELADO")
+      .slice(0, 5);
+
+    // (Re)conectar el listener de votos del próximo partido.
+    connectVotesListener(state.nextMatch ? state.nextMatch.id : null);
+    route();
+  }, (err) => console.error("matches listener:", err));
+}
+
+let unsubVotes = null;
+let votesListenerMatchId = null;
+function connectVotesListener(matchId) {
+  if (matchId === votesListenerMatchId) return;
+  votesListenerMatchId = matchId;
+  if (unsubVotes) { unsubVotes(); unsubVotes = null; }
+  if (!matchId) return;
+  unsubVotes = onSnapshot(collection(db, "matches", matchId, "votes"), (snap) => {
+    state.votesByMatch[matchId] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("votes listener:", err));
+}
+
+let unsubDetail = { goals: null, cards: null };
+function connectDetailListeners(matchId) {
+  if (state.detailMatchId === matchId) return;
+  state.detailMatchId = matchId;
+  if (unsubDetail.goals) unsubDetail.goals();
+  if (unsubDetail.cards) unsubDetail.cards();
+  if (!matchId) return;
+  unsubDetail.goals = onSnapshot(collection(db, "matches", matchId, "goals"), (snap) => {
+    state.detailGoals = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+    route();
+  }, (err) => console.error("goals listener:", err));
+  unsubDetail.cards = onSnapshot(collection(db, "matches", matchId, "cards"), (snap) => {
+    state.detailCards = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+    route();
+  }, (err) => console.error("cards listener:", err));
+}
+
+async function loadStats() {
+  state.statsLoading = true;
+  route();
+  const [goalsSnap, cardsSnap] = await Promise.all([
+    getDocs(collectionGroup(db, "goals")),
+    getDocs(collectionGroup(db, "cards")),
+  ]);
+  const goleadoresMap = new Map();
+  const asistenciasMap = new Map();
+  goalsSnap.forEach((d) => {
+    const g = d.data();
+    const scorer = goleadoresMap.get(g.scorerId) || { id: g.scorerId, count: 0 };
+    scorer.count += 1;
+    goleadoresMap.set(g.scorerId, scorer);
+    if (g.assistId) {
+      const assist = asistenciasMap.get(g.assistId) || { id: g.assistId, count: 0 };
+      assist.count += 1;
+      asistenciasMap.set(g.assistId, assist);
+    }
+  });
+  const tarjetasMap = new Map();
+  cardsSnap.forEach((d) => {
+    const c = d.data();
+    const entry = tarjetasMap.get(c.playerId) || { id: c.playerId, amarillas: 0, rojas: 0 };
+    if (c.type === "AMARILLA") entry.amarillas += 1; else entry.rojas += 1;
+    tarjetasMap.set(c.playerId, entry);
+  });
+  state.stats = {
+    goleadores: [...goleadoresMap.values()].sort((a, b) => b.count - a.count),
+    asistencias: [...asistenciasMap.values()].sort((a, b) => b.count - a.count),
+    tarjetas: [...tarjetasMap.values()].sort((a, b) => (b.amarillas + b.rojas) - (a.amarillas + a.rojas)),
+  };
+  state.statsLoading = false;
+  route();
+}
+
+// -------------------------------------------------------------------------
+// Arranque: autenticación anónima (necesaria para poder votar y, si
+// corresponde, para las reglas de admin) y chequeo de sesión de admin.
+// -------------------------------------------------------------------------
+onAuthStateChanged(auth, async (user) => {
+  if (!user) { await signInAnonymously(auth).catch((e) => console.error(e)); return; }
+  state.uid = user.uid;
+  try {
+    const sessionSnap = await getDoc(doc(db, "adminSessions", user.uid));
+    state.isAdmin = sessionSnap.exists();
+  } catch (e) {
+    state.isAdmin = false;
+  }
+  state.ready = true;
+  startListeners();
+  route();
+});
+
+// =========================================================================
+// ACCIONES (equivalentes a los "server actions" de la versión anterior)
+// =========================================================================
+
+window.selectPlayer = function (playerId) {
+  state.playerId = playerId;
+  localStorage.setItem(PLAYER_KEY, playerId);
+  navigate("#/");
+};
+
+window.changePlayer = function () {
+  state.playerId = null;
+  localStorage.removeItem(PLAYER_KEY);
+  navigate("#/quien-sos");
+};
+
+window.vote = function (matchId, response) {
+  runAction(async () => {
+    const player = currentPlayer();
+    if (!player) throw new Error("Elegí tu nombre primero.");
+    await setDoc(doc(db, "matches", matchId, "votes", player.id), {
+      response, respondedAt: serverTimestamp(),
+    });
+    showToast("¡Voto guardado!");
+  });
+};
+
+window.adminLogin = function (pin) {
+  runAction(async () => {
+    if (!pin) throw new Error("Ingresá el PIN.");
+    await setDoc(doc(db, "adminSessions", state.uid), { pin, createdAt: serverTimestamp() });
+    state.isAdmin = true;
+    showToast("¡Listo, entraste como admin!");
+    navigate("#/admin/partido");
+  }).catch(() => {});
+};
+
+window.adminLogout = function () {
+  runAction(async () => {
+    await deleteDoc(doc(db, "adminSessions", state.uid));
+    state.isAdmin = false;
+    navigate("#/");
+  });
+};
+
+window.addPlayer = function (name, nickname) {
+  runAction(async () => {
+    if (!name || !name.trim()) throw new Error("Falta el nombre.");
+    await addDoc(collection(db, "players"), {
+      name: name.trim(), nickname: nickname && nickname.trim() ? nickname.trim() : null,
+      active: true, createdAt: serverTimestamp(),
+    });
+    showToast("Jugador agregado.");
+    document.getElementById("new-player-name").value = "";
+    document.getElementById("new-player-nickname").value = "";
+  });
+};
+
+window.togglePlayerActive = function (playerId, active) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { active });
+  });
+};
+
+window.createOrUpdateMatch = function (matchId, date, opponent, sede) {
+  runAction(async () => {
+    if (!date) throw new Error("Falta la fecha y hora.");
+    if (!opponent || !opponent.trim()) throw new Error("Falta el rival.");
+    const data = {
+      date: fromBAInputValue(date), opponent: opponent.trim(), sede: sede && sede.trim() ? sede.trim() : null,
+    };
+    if (matchId) {
+      await updateDoc(doc(db, "matches", matchId), data);
+    } else {
+      await addDoc(collection(db, "matches"), {
+        ...data, status: "PROGRAMADO", ourScore: null, theirScore: null, createdAt: serverTimestamp(),
+      });
+    }
+    showToast("Partido guardado.");
+  });
+};
+
+window.markPlayed = function (matchId, ourScore, theirScore) {
+  runAction(async () => {
+    if (ourScore === "" || theirScore === "") throw new Error("Cargá los dos resultados.");
+    await updateDoc(doc(db, "matches", matchId), {
+      status: "JUGADO", ourScore: Number(ourScore), theirScore: Number(theirScore),
+    });
+    navigate(`#/admin/partido/${matchId}`);
+  });
+};
+
+window.cancelMatch = function (matchId) {
+  if (!confirm("¿Seguro que querés cancelar este partido?")) return;
+  runAction(async () => {
+    await updateDoc(doc(db, "matches", matchId), { status: "CANCELADO" });
+  });
+};
+
+async function deleteSubcollection(matchId, name) {
+  const snap = await getDocs(collection(db, "matches", matchId, name));
+  const batch = writeBatch(db);
+  snap.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+}
+
+window.deleteMatch = function (matchId) {
+  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas y votos. No se puede deshacer.")) return;
+  runAction(async () => {
+    await Promise.all([
+      deleteSubcollection(matchId, "votes"),
+      deleteSubcollection(matchId, "goals"),
+      deleteSubcollection(matchId, "cards"),
+    ]);
+    await deleteDoc(doc(db, "matches", matchId));
+    showToast("Partido borrado.");
+  });
+};
+
+window.revertMatch = function (matchId) {
+  if (!confirm('Esto borra el resultado y todos los goles/tarjetas cargados para este partido, y lo vuelve a dejar como "Programado". ¿Seguro?')) return;
+  runAction(async () => {
+    await Promise.all([
+      deleteSubcollection(matchId, "goals"),
+      deleteSubcollection(matchId, "cards"),
+    ]);
+    await updateDoc(doc(db, "matches", matchId), {
+      status: "PROGRAMADO", ourScore: null, theirScore: null,
+    });
+    navigate("#/admin/partido");
+  });
+};
+
+window.addGoal = function (matchId, scorerId, assistId) {
+  runAction(async () => {
+    if (!scorerId) throw new Error("Falta elegir quién hizo el gol.");
+    if (assistId && assistId === scorerId) throw new Error("El goleador y el asistidor no pueden ser la misma persona.");
+    await addDoc(collection(db, "matches", matchId, "goals"), {
+      scorerId, assistId: assistId || null, createdAt: serverTimestamp(),
+    });
+  });
+};
+
+window.deleteGoal = function (matchId, goalId) {
+  runAction(async () => { await deleteDoc(doc(db, "matches", matchId, "goals", goalId)); });
+};
+
+window.addCard = function (matchId, playerId, type) {
+  runAction(async () => {
+    if (!playerId) throw new Error("Falta elegir el jugador.");
+    await addDoc(collection(db, "matches", matchId, "cards"), {
+      playerId, type, createdAt: serverTimestamp(),
+    });
+  });
+};
+
+window.deleteCard = function (matchId, cardId) {
+  runAction(async () => { await deleteDoc(doc(db, "matches", matchId, "cards", cardId)); });
+};
+
+window.goToStats = function () {
+  navigate("#/estadisticas");
+  if (!state.stats) loadStats();
+};
+
+// =========================================================================
+// RENDER
+// =========================================================================
+function render(hash) {
+  if (!state.ready) {
+    document.getElementById("navbar").innerHTML = "";
+    document.getElementById("app").innerHTML = `<div class="py-20 text-center text-gray-400">Cargando…</div>`;
+    return;
+  }
+
+  renderNavbar();
+
+  if (hash.startsWith("#/admin")) {
+    if (!state.isAdmin) { renderAdminLogin(); return; }
+  }
+
+  if (hash === "#/quien-sos") return renderQuienSos();
+  if (hash === "#/admin-login") return state.isAdmin ? navigate("#/admin/partido") : renderAdminLogin();
+  if (hash === "#/admin/plantel") return renderAdminPlantel();
+  if (hash === "#/admin/partido") return renderAdminPartido();
+  if (hash.startsWith("#/admin/partido/")) return renderAdminPartidoDetalle(hash.split("/")[3]);
+  if (hash === "#/estadisticas") return renderEstadisticas();
+
+  // Home ("#/" o cualquier otra cosa)
+  if (!state.playerId || !currentPlayer()) return renderQuienSos();
+  return renderDashboard();
+}
+
+function renderNavbar() {
+  const player = currentPlayer();
+  document.getElementById("navbar").innerHTML = `
+    <header class="bg-club-dark px-4 py-3">
+      <div class="mx-auto flex max-w-2xl items-center justify-between">
+        <a href="#/" class="text-lg font-bold text-white">El Trébol FC</a>
+        <nav class="flex flex-wrap items-center justify-end gap-1">
+          <a href="#/estadisticas" onclick="goToStats()" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white">Estadísticas</a>
+          ${state.isAdmin ? `
+            <a href="#/admin/partido" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white">Partido</a>
+            <a href="#/admin/plantel" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white">Plantel</a>
+            <button onclick="adminLogout()" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white">Salir admin</button>
+          ` : ""}
+          ${player ? `
+            <span class="hidden px-2 text-sm text-white/60 sm:inline">${displayName(player)}</span>
+            <button onclick="changePlayer()" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white">Cambiar</button>
+          ` : ""}
+        </nav>
+      </div>
+    </header>
+  `;
+}
+
+function renderQuienSos() {
+  const activos = state.players.filter((p) => p.active !== false);
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-4">
+      <h1 class="text-xl font-bold text-gray-900">¿Quién sos?</h1>
+      <p class="text-sm text-gray-500">Elegí tu nombre para poder votar en los próximos partidos.</p>
+      ${activos.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>` : `
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          ${activos.map((p) => `
+            <button onclick="selectPlayer('${p.id}')" class="rounded-xl bg-white p-3 text-center text-sm font-medium text-gray-800 shadow-sm hover:bg-club-green hover:text-white">
+              ${displayName(p)}
+            </button>
+          `).join("")}
+        </div>
+      `}
+      <div class="pt-4 text-center">
+        <a href="#/admin-login" class="text-xs text-gray-400 underline underline-offset-2">Acceso de administrador</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminLogin() {
+  document.getElementById("app").innerHTML = `
+    <div class="flex min-h-[60vh] items-center justify-center">
+      <form onsubmit="event.preventDefault(); adminLogin(document.getElementById('pin').value); return false;" class="w-full max-w-xs space-y-4 rounded-2xl bg-white p-6 shadow-md">
+        <div>
+          <label for="pin" class="mb-1 block text-sm font-medium text-gray-700">PIN de administrador</label>
+          <input id="pin" type="password" autocomplete="off" required
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-widest focus:border-club-green focus:outline-none focus:ring-1 focus:ring-club-green" />
+        </div>
+        <button type="submit" class="btn w-full rounded-lg bg-club-green px-4 py-2 font-semibold text-white hover:opacity-90">Entrar</button>
+      </form>
+    </div>
+  `;
+}
+
+function renderDashboard() {
+  const match = state.nextMatch;
+  const player = currentPlayer();
+  const votes = match ? (state.votesByMatch[match.id] || []) : [];
+  const myVote = votes.find((v) => v.id === state.playerId);
+  const confirmados = votes.filter((v) => v.response === "VOY");
+
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      ${!match ? `
+        <div class="rounded-2xl bg-white p-5 text-center shadow-sm">
+          <p class="text-sm text-gray-400">Todavía no hay un próximo partido cargado.</p>
+        </div>
+      ` : `
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 class="mb-1 text-lg font-bold text-gray-900">vs ${escapeHtml(match.opponent)}</h2>
+          <p class="mb-4 text-sm text-gray-500">
+            ${fmtShort.format(tsToDate(match.date))}${match.sede ? " · " + escapeHtml(match.sede) : ""}
+          </p>
+          <p class="mb-2 text-sm font-medium text-gray-700">¿Vas?</p>
+          <div class="flex gap-2">
+            <button onclick="vote('${match.id}','VOY')" class="btn flex-1 rounded-lg px-3 py-2 text-sm font-semibold ${myVote?.response === "VOY" ? "bg-club-green text-white" : "bg-gray-100 text-gray-700"}">Voy</button>
+            <button onclick="vote('${match.id}','TAL_VEZ')" class="btn flex-1 rounded-lg px-3 py-2 text-sm font-semibold ${myVote?.response === "TAL_VEZ" ? "bg-yellow-500 text-white" : "bg-gray-100 text-gray-700"}">Tal vez</button>
+            <button onclick="vote('${match.id}','NO_VOY')" class="btn flex-1 rounded-lg px-3 py-2 text-sm font-semibold ${myVote?.response === "NO_VOY" ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700"}">No voy</button>
+          </div>
+        </div>
+
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 class="mb-3 font-semibold text-gray-900">Confirmados (${confirmados.length})</h3>
+          ${confirmados.length === 0 ? `<p class="text-sm text-gray-400">Todavía no confirmó nadie.</p>` : `
+            <ul class="space-y-1.5">
+              ${confirmados.map((v) => `<li class="text-sm text-gray-800">✓ ${displayName(state.playersById[v.id])}</li>`).join("")}
+            </ul>
+          `}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function renderAdminPlantel() {
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <h1 class="text-xl font-bold text-gray-900">Plantel</h1>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">Agregar jugador</h3>
+        <form onsubmit="event.preventDefault(); addPlayer(document.getElementById('new-player-name').value, document.getElementById('new-player-nickname').value); return false;" class="grid grid-cols-2 gap-3">
+          <input id="new-player-name" placeholder="Nombre" required class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-sm sm:col-span-1" />
+          <input id="new-player-nickname" placeholder="Apodo (opcional)" class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-sm sm:col-span-1" />
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar</button>
+        </form>
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">Jugadores (${state.players.length})</h3>
+        <ul class="space-y-1.5">
+          ${state.players.map((p) => `
+            <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+              <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayName(p)}</span>
+              <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
+                ${p.active === false ? "Reactivar" : "Dar de baja"}
+              </button>
+            </li>
+          `).join("")}
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
+function matchScoreLabel(m) {
+  if (m.status === "CANCELADO") return "Cancelado";
+  return `${m.ourScore ?? "-"} - ${m.theirScore ?? "-"}`;
+}
+
+function renderAdminPartido() {
+  const match = state.nextMatch;
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">Partido de la semana</h1>
+        <p class="text-sm text-gray-500">Cargá el próximo partido para que el equipo pueda confirmar asistencia.</p>
+      </div>
+
+      <form onsubmit="event.preventDefault(); createOrUpdateMatch(${match ? `'${match.id}'` : "null"}, document.getElementById('m-date').value, document.getElementById('m-opponent').value, document.getElementById('m-sede').value); return false;" class="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="font-semibold text-gray-900">${match ? "Editar próximo partido" : "Cargar partido de la semana"}</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="col-span-2 sm:col-span-1">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Fecha y hora</label>
+            <input id="m-date" type="datetime-local" required value="${match ? toBAInputValue(tsToDate(match.date)) : ""}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Rival</label>
+            <input id="m-opponent" required value="${match ? escapeHtml(match.opponent) : ""}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          </div>
+          <div class="col-span-2">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Sede (opcional)</label>
+            <input id="m-sede" value="${match && match.sede ? escapeHtml(match.sede) : ""}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <button type="submit" class="btn rounded-lg bg-club-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">Guardar</button>
+      </form>
+
+      ${match ? `
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 class="mb-3 font-semibold text-gray-900">Después del partido</h3>
+          <div id="score-area">
+            <div class="flex flex-wrap gap-2">
+              <button onclick="document.getElementById('score-form').classList.remove('hidden'); document.getElementById('score-toggle').classList.add('hidden');" id="score-toggle" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Marcar como jugado</button>
+              <button onclick="cancelMatch('${match.id}')" class="btn rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Cancelar partido</button>
+            </div>
+            <div id="score-form" class="hidden mt-3 space-y-3">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-600">El Trébol FC</span>
+                <input id="our-score" type="number" min="0" class="w-16 rounded-lg border border-gray-300 px-2 py-1 text-center text-sm" />
+                <span class="text-sm text-gray-400">vs</span>
+                <input id="their-score" type="number" min="0" class="w-16 rounded-lg border border-gray-300 px-2 py-1 text-center text-sm" />
+                <span class="text-sm text-gray-600">Rival</span>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="markPlayed('${match.id}', document.getElementById('our-score').value, document.getElementById('their-score').value)" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Guardar resultado</button>
+                <button onclick="document.getElementById('score-form').classList.add('hidden'); document.getElementById('score-toggle').classList.remove('hidden');" class="btn rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Volver</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : ""}
+
+      ${state.recentMatches.length > 0 ? `
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 class="mb-3 font-semibold text-gray-900">Partidos recientes</h3>
+          <ul class="space-y-1.5">
+            ${state.recentMatches.map((m) => `
+              <li class="flex items-center justify-between text-sm">
+                <span class="text-gray-700">vs ${escapeHtml(m.opponent)} · ${fmtShort.format(tsToDate(m.date))}</span>
+                <span class="flex items-center gap-3">
+                  <span class="font-medium text-gray-900">${matchScoreLabel(m)}</span>
+                  ${m.status === "JUGADO" ? `<a href="#/admin/partido/${m.id}" class="text-xs text-club-green underline underline-offset-2">Goles y tarjetas</a>` : ""}
+                  <button onclick="deleteMatch('${m.id}')" class="text-xs text-red-600 hover:underline">Borrar</button>
+                </span>
+              </li>
+            `).join("")}
+          </ul>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function playerOptionsForMatch(matchId) {
+  const votes = state.votesByMatch[matchId] || [];
+  const confirmedIds = new Set(votes.filter((v) => v.response === "VOY").map((v) => v.id));
+  const confirmed = votes
+    .filter((v) => v.response === "VOY")
+    .map((v) => ({ id: v.id, label: "✓ " + displayName(state.playersById[v.id]) }));
+  const rest = state.players
+    .filter((p) => p.active !== false && !confirmedIds.has(p.id))
+    .map((p) => ({ id: p.id, label: displayName(p) }));
+  return [...confirmed, ...rest];
+}
+
+function renderAdminPartidoDetalle(matchId) {
+  const match = state.matches.find((m) => m.id === matchId);
+  if (!match) {
+    document.getElementById("app").innerHTML = `<p class="text-sm text-gray-400">No se encontró el partido.</p>`;
+    return;
+  }
+  // Si el partido ya no es "el próximo" (ya se jugó), el listener en vivo de
+  // votos sigue apuntando al nuevo próximo partido (si hay uno). Para poder
+  // armar la lista de jugadores de este partido pasado, pedimos sus votos
+  // una sola vez (no hace falta que sea en vivo, ya se jugó).
+  if (!state.votesByMatch[matchId]) {
+    getDocs(collection(db, "matches", matchId, "votes")).then((snap) => {
+      state.votesByMatch[matchId] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      route();
+    });
+  }
+  connectDetailListeners(matchId);
+
+  const playerOptions = playerOptionsForMatch(matchId);
+  const goals = state.detailGoals;
+  const cards = state.detailCards;
+
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">vs ${escapeHtml(match.opponent)}</h1>
+        <p class="text-sm text-gray-500">
+          ${fmtLong.format(tsToDate(match.date))}
+          ${match.status === "JUGADO" ? ` · Resultado: ${match.ourScore} - ${match.theirScore}` : ""}
+        </p>
+        ${match.status === "JUGADO" ? `<div class="mt-1"><button onclick="revertMatch('${match.id}')" class="text-xs text-red-600 hover:underline">Deshacer resultado (volver a Programado)</button></div>` : ""}
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">Goles</h3>
+        <div class="mb-4">
+          ${goals.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay goles cargados.</p>` : `
+            <ul class="space-y-1.5">
+              ${goals.map((g) => `
+                <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                  <span>⚽ ${displayName(state.playersById[g.scorerId])}${g.assistId ? ` <span class="text-gray-400">(asistencia de ${displayName(state.playersById[g.assistId])})</span>` : ""}</span>
+                  <button onclick="deleteGoal('${matchId}','${g.id}')" class="text-xs text-red-600 hover:underline">Quitar</button>
+                </li>
+              `).join("")}
+            </ul>
+          `}
+        </div>
+        <form onsubmit="event.preventDefault(); addGoal('${matchId}', document.getElementById('goal-scorer').value, document.getElementById('goal-assist').value); this.reset(); return false;" class="grid grid-cols-2 gap-2">
+          <select id="goal-scorer" required class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="">¿Quién hizo el gol?</option>
+            ${playerOptions.map((p) => `<option value="${p.id}">${p.label}</option>`).join("")}
+          </select>
+          <select id="goal-assist" class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="">Asistencia (opcional)</option>
+            ${playerOptions.map((p) => `<option value="${p.id}">${p.label}</option>`).join("")}
+          </select>
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-3 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar gol</button>
+        </form>
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">Tarjetas</h3>
+        <div class="mb-4">
+          ${cards.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay tarjetas cargadas.</p>` : `
+            <ul class="space-y-1.5">
+              ${cards.map((c) => `
+                <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                  <span>${c.type === "AMARILLA" ? "🟨" : "🟥"} ${displayName(state.playersById[c.playerId])}</span>
+                  <button onclick="deleteCard('${matchId}','${c.id}')" class="text-xs text-red-600 hover:underline">Quitar</button>
+                </li>
+              `).join("")}
+            </ul>
+          `}
+        </div>
+        <form onsubmit="event.preventDefault(); addCard('${matchId}', document.getElementById('card-player').value, document.getElementById('card-type').value); this.reset(); return false;" class="grid grid-cols-2 gap-2">
+          <select id="card-player" required class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="">Jugador</option>
+            ${playerOptions.map((p) => `<option value="${p.id}">${p.label}</option>`).join("")}
+          </select>
+          <select id="card-type" required class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="AMARILLA">🟨 Amarilla</option>
+            <option value="ROJA">🟥 Roja</option>
+          </select>
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-3 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar tarjeta</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderEstadisticas() {
+  if (!state.stats && !state.statsLoading) loadStats();
+  const s = state.stats;
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <h1 class="text-xl font-bold text-gray-900">Estadísticas históricas</h1>
+      ${!s ? `<p class="text-sm text-gray-400">Cargando…</p>` : `
+        <section class="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 class="mb-3 font-semibold text-gray-900">⚽ Goleadores</h2>
+          ${s.goleadores.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay goles cargados.</p>` : `
+            <ol class="space-y-1.5">
+              ${s.goleadores.map((g, i) => `
+                <li class="flex justify-between text-sm">
+                  <span class="text-gray-800">${i + 1}. ${displayName(state.playersById[g.id])}</span>
+                  <span class="font-medium text-gray-900">${g.count}</span>
+                </li>
+              `).join("")}
+            </ol>
+          `}
+        </section>
+
+        <section class="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 class="mb-3 font-semibold text-gray-900">👟 Asistencias</h2>
+          ${s.asistencias.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay asistencias cargadas.</p>` : `
+            <ol class="space-y-1.5">
+              ${s.asistencias.map((a, i) => `
+                <li class="flex justify-between text-sm">
+                  <span class="text-gray-800">${i + 1}. ${displayName(state.playersById[a.id])}</span>
+                  <span class="font-medium text-gray-900">${a.count}</span>
+                </li>
+              `).join("")}
+            </ol>
+          `}
+        </section>
+
+        <section class="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 class="mb-3 font-semibold text-gray-900">🟨🟥 Tarjetas</h2>
+          ${s.tarjetas.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay tarjetas cargadas.</p>` : `
+            <ul class="space-y-1.5">
+              ${s.tarjetas.map((t) => `
+                <li class="flex justify-between text-sm">
+                  <span class="text-gray-800">${displayName(state.playersById[t.id])}</span>
+                  <span class="font-medium text-gray-900">
+                    ${t.amarillas > 0 ? `🟨 ${t.amarillas}` : ""}${t.amarillas > 0 && t.rojas > 0 ? "  " : ""}${t.rojas > 0 ? `🟥 ${t.rojas}` : ""}
+                  </span>
+                </li>
+              `).join("")}
+            </ul>
+          `}
+        </section>
+      `}
+    </div>
+  `;
+}
+
+// Registrar el service worker (PWA) y arrancar el router.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => console.error(e));
+  });
+}
+route();
+</script>
+</body>
+</html>
