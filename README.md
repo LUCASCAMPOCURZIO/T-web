@@ -125,4 +125,4 @@ pendiente para más adelante (igual que antes):
   votado) → ranking de asistencia de la temporada y ranking histórico.
 - Vallas invictas.
 - Tabla de posiciones y fixture de la Liga Vasco Germana, traídos
-  automáticamente.
+  automáticamente .
