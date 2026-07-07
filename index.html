@@ -647,6 +647,15 @@ window.unsetCaptain = function (playerId) {
   });
 };
 
+// Se guarda la fecha de nacimiento completa (no solo día y mes) porque el
+// input de fecha del navegador la pide igual, y de yapa permite mostrar
+// "cumple X años" y no solo "hoy es su cumpleaños".
+window.setBirthday = function (playerId, dateStr) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { birthday: dateStr || null });
+  });
+};
+
 window.createOrUpdateMatch = function (matchId, date, opponent, sede) {
   runAction(async () => {
     if (!date) throw new Error("Falta la fecha y hora.");
@@ -1123,6 +1132,51 @@ function commentsWallCard(matchId, comments, title) {
   `;
 }
 
+// =========================================================================
+// CUMPLEAÑOS DEL PLANTEL
+// =========================================================================
+// "Hoy" en el huso horario de Argentina, como partes sueltas — así se puede
+// comparar mes/día del cumpleaños de cada uno sin que la zona horaria del
+// celu de cada jugador corra la fecha un día para un lado o el otro.
+function todayPartsBA() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return { year: get("year"), month: get("month"), day: get("day") };
+}
+
+function playersWithBirthdayToday() {
+  const today = todayPartsBA();
+  return state.players.filter((p) => {
+    if (p.active === false || !p.birthday) return false;
+    const [, month, day] = p.birthday.split("-");
+    return month === today.month && day === today.day;
+  });
+}
+
+function formatBirthdayShort(birthday) {
+  const [, month, day] = birthday.split("-");
+  return `${day}/${month}`;
+}
+
+// Cartel de cumpleaños en la pantalla principal: no se muestra nada si hoy
+// no cumple años ningún jugador activo.
+function birthdayBanner() {
+  const celebrants = playersWithBirthdayToday();
+  if (celebrants.length === 0) return "";
+  const today = todayPartsBA();
+  return `
+    <div class="overflow-hidden rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-500 p-5 text-center shadow-sm">
+      ${celebrants.map((p) => {
+        const birthYear = parseInt(p.birthday.split("-")[0], 10);
+        const age = birthYear ? parseInt(today.year, 10) - birthYear : null;
+        return `<p class="font-display text-lg font-semibold text-white">🎂 ¡Hoy cumple${age ? ` ${age} años` : ""} ${displayName(p)}! 🎉</p>`;
+      }).join("")}
+    </div>
+  `;
+}
+
 // Tarjeta para votar la figura del último partido jugado (cuando un admin
 // abrió la votación) o para ver quién ganó (cuando ya se cerró). No se
 // muestra nada para partidos donde nunca se usó esta función.
@@ -1183,6 +1237,7 @@ function renderDashboard() {
 
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
+      ${birthdayBanner()}
       ${!match ? `
         <div class="rounded-2xl bg-white p-5 text-center shadow-sm">
           <p class="text-sm text-gray-400">Todavía no hay un próximo partido cargado.</p>
@@ -1241,17 +1296,24 @@ function renderAdminPlantel() {
         <h3 class="mb-3 font-semibold text-gray-900">Jugadores (${state.players.length})</h3>
         <ul class="space-y-1.5">
           ${state.players.map((p) => `
-            <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
-              <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayNameWithCaptain(p)}</span>
-              <span class="flex items-center gap-3">
-                ${p.isCaptain
-                  ? `<button onclick="unsetCaptain('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar capitanía</button>`
-                  : `<button onclick="setCaptain('${p.id}')" class="text-xs text-club-green hover:underline">Designar capitán</button>`
-                }
-                <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
-                  ${p.active === false ? "Reactivar" : "Dar de baja"}
-                </button>
-              </span>
+            <li class="rounded-lg bg-gray-50 px-3 py-2 text-sm">
+              <div class="flex items-center justify-between">
+                <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayNameWithCaptain(p)}</span>
+                <span class="flex items-center gap-3">
+                  ${p.isCaptain
+                    ? `<button onclick="unsetCaptain('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar capitanía</button>`
+                    : `<button onclick="setCaptain('${p.id}')" class="text-xs text-club-green hover:underline">Designar capitán</button>`
+                  }
+                  <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
+                    ${p.active === false ? "Reactivar" : "Dar de baja"}
+                  </button>
+                </span>
+              </div>
+              <div class="mt-1.5 flex items-center gap-2 text-xs text-gray-500">
+                <span>🎂</span>
+                <input type="date" value="${p.birthday || ""}" onchange="setBirthday('${p.id}', this.value)" class="rounded border border-gray-300 px-2 py-1 text-xs" />
+                ${p.birthday ? `<span class="text-gray-400">(${formatBirthdayShort(p.birthday)})</span>` : `<span class="text-gray-400">Sin cargar</span>`}
+              </div>
             </li>
           `).join("")}
         </ul>
