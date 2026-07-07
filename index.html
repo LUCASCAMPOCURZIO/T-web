@@ -15,11 +15,18 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://cdn.tailwindcss.com" />
+<!-- Solo pedimos los pesos de fuente que realmente usamos (antes pedíamos
+     8 variantes, ahora 4) — cada peso de más es un archivo extra que hay
+     que descargar antes de que se vea bien la app. -->
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
 
-<script src="https://cdn.tailwindcss.com"></script>
 <script>
-  tailwind.config = {
+  // Guardamos la configuración en una variable propia (no en `tailwind.*`,
+  // que todavía no existe) para no bloquear el HTML mientras se descarga
+  // Tailwind — se la pasamos recién cuando el script de abajo termina de
+  // cargar (ver el atributo onload).
+  window.__tailwindConfig = {
     theme: {
       extend: {
         colors: {
@@ -36,6 +43,7 @@
     },
   };
 </script>
+<script defer src="https://cdn.tailwindcss.com" onload="tailwind.config = window.__tailwindConfig"></script>
 
 <style>
   body {
@@ -56,14 +64,27 @@
     width: 1.5rem; height: 1.5rem; border-radius: 9999px;
     font-size: .7rem; font-weight: 700; flex-shrink: 0;
   }
+
+  /* Pantalla de carga inicial, en CSS puro (nada de Tailwind) — así se ve
+     apenas se abre la app, sin esperar a que bajen ni Tailwind ni las
+     tipografías ni Firebase. En cuanto la app arranca de verdad, este
+     bloque se reemplaza solo (ver el primer renderNavbar()/route()). */
+  #boot-splash {
+    min-height: 70vh; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; color: #9ca3af; font-family: system-ui, sans-serif;
+  }
+  #boot-splash img { width: 56px; height: 56px; border-radius: 9999px; animation: boot-pulse 1.4s ease-in-out infinite; }
+  @keyframes boot-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 </style>
 </head>
 <body class="min-h-screen">
   <div id="navbar"></div>
-  <main id="app" class="mx-auto max-w-2xl space-y-6 px-4 py-6"></main>
+  <main id="app" class="mx-auto max-w-2xl space-y-6 px-4 py-6">
+    <div id="boot-splash"><img src="/icons/icon-192.png" alt="" /><p>Cargando…</p></div>
+  </main>
   <div id="toast" class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4"></div>
 
-<script type="module">
+<script type="module" async>
 /* =========================================================================
    El Trébol FC — app de un solo archivo (HTML + CSS + JS), sin servidor
    propio: los datos viven en Firebase Firestore y el hosting es estático
