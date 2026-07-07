@@ -665,6 +665,41 @@ window.deleteMatch = function (matchId) {
   });
 };
 
+// Herramienta de limpieza para datos que quedaron "sueltos" de partidos que
+// se borraron ANTES de que existiera el borrado-de-subcolecciones de arriba
+// (o por cualquier otro motivo quedaron huérfanos). Sin esto, esos datos
+// viejos se siguen contando en Estadísticas para siempre porque las
+// collection group queries no distinguen si el partido dueño todavía existe.
+window.cleanOrphanedMatchData = function () {
+  if (!confirm('Esto busca asistencia, votos, goles y tarjetas que hayan quedado de partidos ya borrados (no de los partidos actuales) y los elimina. ¿Continuar?')) return;
+  runAction(async () => {
+    const matchesSnap = await getDocs(collection(db, "matches"));
+    const validIds = new Set(matchesSnap.docs.map((d) => d.id));
+    const subcollections = ["votes", "goals", "cards", "attendance", "motmVotes"];
+    const orphanRefs = [];
+    for (const name of subcollections) {
+      const snap = await getDocs(collectionGroup(db, name));
+      snap.forEach((d) => {
+        const matchId = d.ref.path.split("/")[1];
+        if (!validIds.has(matchId)) orphanRefs.push(d.ref);
+      });
+    }
+    if (orphanRefs.length === 0) {
+      showToast("No se encontró nada suelto: todo lo que hay en Estadísticas es de partidos actuales.");
+      return;
+    }
+    // Firestore no permite más de 500 operaciones por batch.
+    for (let i = 0; i < orphanRefs.length; i += 400) {
+      const batch = writeBatch(db);
+      orphanRefs.slice(i, i + 400).forEach((ref) => batch.delete(ref));
+      await batch.commit();
+    }
+    showToast(`Listo: se borraron ${orphanRefs.length} dato(s) sueltos de partidos ya eliminados.`);
+    state.stats = null;
+    loadStats();
+  });
+};
+
 window.revertMatch = function (matchId) {
   if (!confirm('Esto borra el resultado, los goles/tarjetas, la asistencia y la figura del partido cargados, y lo vuelve a dejar como "Programado". ¿Seguro?')) return;
   runAction(async () => {
@@ -1463,6 +1498,20 @@ function renderEstadisticas() {
         </div>
       `)}
     </section>
+
+    ${state.isAdmin ? `
+      <details class="rounded-2xl bg-white p-4 text-xs text-gray-500 shadow-sm ring-1 ring-gray-100">
+        <summary class="cursor-pointer select-none font-medium text-gray-600">🧹 ¿Los números no cierran?</summary>
+        <p class="mt-2">
+          Si alguna vez se borró un partido de prueba y sus datos quedaron sumando presencias,
+          goles, tarjetas o figuras de más en esta tabla, tocá este botón: busca datos de
+          partidos que ya no existen y los borra. No toca los partidos actuales.
+        </p>
+        <button onclick="cleanOrphanedMatchData()" class="btn mt-2 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200">
+          Limpiar datos de partidos borrados
+        </button>
+      </details>
+    ` : ""}
   `;
 
   document.getElementById("app").innerHTML = `
