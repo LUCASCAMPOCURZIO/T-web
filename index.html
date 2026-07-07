@@ -356,21 +356,26 @@ async function loadStats() {
   state.statsLoading = true;
   state.statsError = null;
   route();
-  let goalsSnap, cardsSnap, votesSnap, attendanceSnap;
-  try {
-    [goalsSnap, cardsSnap, votesSnap, attendanceSnap] = await Promise.all([
-      getDocs(collectionGroup(db, "goals")),
-      getDocs(collectionGroup(db, "cards")),
-      getDocs(collectionGroup(db, "votes")),
-      getDocs(collectionGroup(db, "attendance")),
-    ]);
-  } catch (err) {
-    console.error("loadStats:", err);
-    state.statsError = (err && err.message) || "Error desconocido cargando las estadísticas.";
+  // Se piden las 4 por separado (no con Promise.all) para poder decir
+  // puntualmente cuál de las 4 falló, en vez de un error genérico.
+  const queries = [
+    ["goals", collectionGroup(db, "goals")],
+    ["cards", collectionGroup(db, "cards")],
+    ["votes", collectionGroup(db, "votes")],
+    ["attendance", collectionGroup(db, "attendance")],
+  ];
+  const results = await Promise.allSettled(queries.map(([, q]) => getDocs(q)));
+  const failed = results
+    .map((r, i) => (r.status === "rejected" ? { name: queries[i][0], err: r.reason } : null))
+    .filter(Boolean);
+  if (failed.length > 0) {
+    failed.forEach((f) => console.error(`loadStats (${f.name}):`, f.err));
+    state.statsError = failed.map((f) => `"${f.name}": ${(f.err && f.err.message) || "error desconocido"}`).join(" / ");
     state.statsLoading = false;
     route();
     return;
   }
+  const [goalsSnap, cardsSnap, votesSnap, attendanceSnap] = results.map((r) => r.value);
   const goleadoresMap = new Map();
   const asistenciasMap = new Map();
   goalsSnap.forEach((d) => {
