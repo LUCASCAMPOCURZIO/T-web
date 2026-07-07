@@ -75,9 +75,26 @@
   }
   #boot-splash img { width: 56px; height: 56px; border-radius: 9999px; animation: boot-pulse 1.4s ease-in-out infinite; }
   @keyframes boot-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+
+  /* Fondo con fotos del equipo, en blanco y negro y bien atenuado para no
+     competir con el contenido — arranca recién unos segundos después de
+     que la app ya está andando (ver startBgSlideshow), para no sumarle
+     nada al tiempo de carga inicial. */
+  #bg-slideshow { position: fixed; inset: 0; z-index: -2; overflow: hidden; background: #e7e7e5; }
+  #bg-slideshow img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity 2.5s ease;
+  }
+  #bg-slideshow img.active { opacity: 1; }
+  #bg-scrim { position: fixed; inset: 0; z-index: -1; background: rgba(245,245,244,.85); }
+  @media (prefers-reduced-motion: reduce) {
+    #bg-slideshow img { transition: none; }
+  }
 </style>
 </head>
 <body class="min-h-screen">
+  <div id="bg-slideshow" aria-hidden="true"></div>
+  <div id="bg-scrim" aria-hidden="true"></div>
   <div id="navbar"></div>
   <main id="app" class="mx-auto max-w-2xl space-y-6 px-4 py-6">
     <div id="boot-splash"><img src="/icons/icon-192.png" alt="" /><p>Cargando…</p></div>
@@ -1144,6 +1161,44 @@ function renderEstadisticas() {
     </div>
   `;
 }
+
+// Fondo con fotos del equipo (carpeta fotos/), en blanco y negro y
+// atenuadas — van cambiando de a una cada tanto con un fundido suave.
+// Arranca con un pequeño retraso y carga las fotos de a una (nunca todas
+// juntas) para no competir con lo importante durante la carga inicial.
+const BG_PHOTOS = [
+  "/fotos/equipo-1.jpg", "/fotos/equipo-2.jpg", "/fotos/equipo-3.jpg",
+  "/fotos/equipo-4.jpg", "/fotos/equipo-5.jpg", "/fotos/equipo-6.jpg",
+  "/fotos/equipo-7.jpg",
+];
+function startBgSlideshow() {
+  const container = document.getElementById("bg-slideshow");
+  if (!container || BG_PHOTOS.length === 0) return;
+  const imgs = BG_PHOTOS.map(() => {
+    const img = document.createElement("img");
+    img.alt = "";
+    container.appendChild(img);
+    return img;
+  });
+  function load(i) {
+    if (!imgs[i].src) imgs[i].src = BG_PHOTOS[i];
+  }
+  let current = 0;
+  load(0);
+  imgs[0].addEventListener("load", () => imgs[0].classList.add("active"), { once: true });
+  load(1 % imgs.length);
+  if (imgs.length > 1) {
+    setInterval(() => {
+      const next = (current + 1) % imgs.length;
+      load(next);
+      imgs[current].classList.remove("active");
+      imgs[next].classList.add("active");
+      current = next;
+      load((next + 1) % imgs.length);
+    }, 9000);
+  }
+}
+setTimeout(startBgSlideshow, 1500);
 
 // Registrar el service worker (PWA) y arrancar el router.
 if ("serviceWorker" in navigator) {
