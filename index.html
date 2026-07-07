@@ -266,6 +266,9 @@ const state = {
   detailGoals: [],
   detailCards: [],
   detailAttendance: [], // asistencia real cargada por un admin para el partido que se está viendo
+  detailMotmVotes: [], // votos de figura del partido del partido que se está viendo (admin)
+  lastPlayedAttendance: [], // asistencia del último partido jugado (para que un jugador pueda votar)
+  lastPlayedMotmVotes: [], // mis votos de figura del último partido jugado (vista jugador)
   stats: null, // {goleadores, asistencias, tarjetas, porJugador}
   statsLoading: false,
   statsError: null,
@@ -320,9 +323,13 @@ function startListeners() {
     state.recentMatches = state.matches
       .filter((m) => m.status === "JUGADO" || m.status === "CANCELADO")
       .slice(0, 5);
+    const lastPlayed = state.matches.find((m) => m.status === "JUGADO") || null;
 
-    // (Re)conectar el listener de votos del próximo partido.
+    // (Re)conectar los listeners de votos del próximo partido, y de
+    // asistencia/votos de figura del último partido jugado (para que un
+    // jugador pueda votar la figura desde la pantalla principal).
     connectVotesListener(state.nextMatch ? state.nextMatch.id : null);
+    connectLastPlayedListeners(lastPlayed ? lastPlayed.id : null);
     route();
   }, (err) => console.error("matches listener:", err));
 }
@@ -340,13 +347,34 @@ function connectVotesListener(matchId) {
   }, (err) => console.error("votes listener:", err));
 }
 
-let unsubDetail = { goals: null, cards: null, attendance: null };
+let unsubLastPlayed = { attendance: null, motmVotes: null };
+let lastPlayedListenerMatchId = null;
+function connectLastPlayedListeners(matchId) {
+  if (matchId === lastPlayedListenerMatchId) return;
+  lastPlayedListenerMatchId = matchId;
+  if (unsubLastPlayed.attendance) unsubLastPlayed.attendance();
+  if (unsubLastPlayed.motmVotes) unsubLastPlayed.motmVotes();
+  state.lastPlayedAttendance = [];
+  state.lastPlayedMotmVotes = [];
+  if (!matchId) return;
+  unsubLastPlayed.attendance = onSnapshot(collection(db, "matches", matchId, "attendance"), (snap) => {
+    state.lastPlayedAttendance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("lastPlayed attendance listener:", err));
+  unsubLastPlayed.motmVotes = onSnapshot(collection(db, "matches", matchId, "motmVotes"), (snap) => {
+    state.lastPlayedMotmVotes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("lastPlayed motmVotes listener:", err));
+}
+
+let unsubDetail = { goals: null, cards: null, attendance: null, motmVotes: null };
 function connectDetailListeners(matchId) {
   if (state.detailMatchId === matchId) return;
   state.detailMatchId = matchId;
   if (unsubDetail.goals) unsubDetail.goals();
   if (unsubDetail.cards) unsubDetail.cards();
   if (unsubDetail.attendance) unsubDetail.attendance();
+  if (unsubDetail.motmVotes) unsubDetail.motmVotes();
   if (!matchId) return;
   unsubDetail.goals = onSnapshot(collection(db, "matches", matchId, "goals"), (snap) => {
     state.detailGoals = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -362,6 +390,10 @@ function connectDetailListeners(matchId) {
     state.detailAttendance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     route();
   }, (err) => console.error("attendance listener:", err));
+  unsubDetail.motmVotes = onSnapshot(collection(db, "matches", matchId, "motmVotes"), (snap) => {
+    state.detailMotmVotes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("motmVotes listener:", err));
 }
 
 async function loadStats() {
@@ -657,11 +689,77 @@ window.deleteGoal = function (matchId, goalId) {
 
 // "Figura del partido": un campo más en el propio documento del partido
 // (no hace falta una colección aparte), así que ya viaja con el resto de
-// los datos de "matches" que están siempre en memoria.
+// los datos de "matches" que están siempre en memoria. Se puede elegir a
+// mano (esto) o por votación de los jugadores (ver más abajo); elegirla a
+// mano siempre cierra/descarta cualquier votación que estuviera abierta.
 window.setMotm = function (matchId, playerId) {
   runAction(async () => {
-    await updateDoc(doc(db, "matches", matchId), { motmPlayerId: playerId || null });
+    await updateDoc(doc(db, "matches", matchId), { motmPlayerId: playerId || null, motmVotingOpen: false });
     showToast("Figura del partido guardada.");
+  });
+};
+
+// Votación de figura del partido entre los jugadores que estuvieron en la
+// cancha. Al abrirla, "congelamos" la asistencia actual (la que se ve en
+// pantalla, sea explícita o el aproximado por "Voy") como documentos
+// explícitos: así la lista de quién puede votar no cambia sola después.
+window.openMotmVoting = function (matchId) {
+  runAction(async () => {
+    const attendanceIds = new Set(state.detailAttendance.map((a) => a.id));
+    const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
+    const activePlayers = state.players.filter((p) => p.active !== false);
+    const batch = writeBatch(db);
+    let touched = false;
+    for (const p of activePlayers) {
+      if (!attendanceIds.has(p.id)) {
+        batch.set(doc(db, "matches", matchId, "attendance", p.id), { present: voyIds.has(p.id) });
+        touched = true;
+      }
+    }
+    if (touched) await batch.commit();
+    await updateDoc(doc(db, "matches", matchId), { motmVotingOpen: true, motmPlayerId: null });
+    showToast("Votación de figura del partido abierta.");
+  });
+};
+
+// Cierra la votación, cuenta los votos (recién acá se miran, nunca antes)
+// y define un ganador. Si hay empate en el primer puesto, no se elige
+// nadie automáticamente — el admin lo resuelve a mano con el selector.
+window.closeMotmVoting = function (matchId) {
+  runAction(async () => {
+    const snap = await getDocs(collection(db, "matches", matchId, "motmVotes"));
+    const tally = new Map();
+    snap.forEach((d) => {
+      const votedForId = d.data().votedForId;
+      if (!votedForId) return;
+      tally.set(votedForId, (tally.get(votedForId) || 0) + 1);
+    });
+    let winnerId = null;
+    if (tally.size > 0) {
+      const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+      const topCount = sorted[0][1];
+      const tiedAtTop = sorted.filter(([, count]) => count === topCount);
+      winnerId = tiedAtTop.length === 1 ? tiedAtTop[0][0] : null;
+    }
+    await updateDoc(doc(db, "matches", matchId), { motmVotingOpen: false, motmPlayerId: winnerId });
+    if (snap.size === 0) showToast("Votación cerrada (todavía no había votado nadie).");
+    else if (winnerId) showToast(`Votación cerrada — figura del partido revelada (${snap.size} votos).`);
+    else showToast("¡Empate en la votación! Elegí manualmente quién fue la figura.", "error");
+  });
+};
+
+// Voto de un jugador (puede cambiarlo mientras la votación siga abierta,
+// porque simplemente pisa su propio documento). No hay forma de ver quién
+// va ganando desde acá: el resultado se conoce recién cuando un admin
+// cierra la votación.
+window.voteMotm = function (matchId, votedForId) {
+  runAction(async () => {
+    if (!state.playerId) throw new Error("Elegí tu nombre primero.");
+    if (votedForId === state.playerId) throw new Error("No te podés votar a vos mismo.");
+    await setDoc(doc(db, "matches", matchId, "motmVotes", state.playerId), {
+      votedForId, votedAt: serverTimestamp(),
+    });
+    showToast("¡Voto registrado! Gracias.");
   });
 };
 
@@ -829,12 +927,63 @@ function renderAdminLogin() {
   `;
 }
 
+// Tarjeta para votar la figura del último partido jugado (cuando un admin
+// abrió la votación) o para ver quién ganó (cuando ya se cerró). No se
+// muestra nada para partidos donde nunca se usó esta función.
+function motmVoteCard(lastPlayed) {
+  if (!lastPlayed) return "";
+  if (!lastPlayed.motmVotingOpen && !lastPlayed.motmPlayerId) return "";
+  const attendanceIds = new Set(state.lastPlayedAttendance.filter((a) => a.present).map((a) => a.id));
+
+  if (!lastPlayed.motmVotingOpen) {
+    return `
+      <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+        <h3 class="font-semibold text-gray-900">🏅 Figura del partido vs ${escapeHtml(lastPlayed.opponent)}</h3>
+        <p class="mt-1 text-sm text-gray-700">${displayNameWithCaptain(state.playersById[lastPlayed.motmPlayerId])}</p>
+      </div>
+    `;
+  }
+
+  const iAttended = !!state.playerId && attendanceIds.has(state.playerId);
+  const myVote = state.lastPlayedMotmVotes.find((v) => v.id === state.playerId);
+  const candidates = state.players.filter((p) => attendanceIds.has(p.id) && p.id !== state.playerId);
+
+  let body;
+  if (!state.playerId) {
+    body = `<p class="text-sm text-gray-400">Elegí tu nombre para poder votar.</p>`;
+  } else if (!iAttended) {
+    body = `<p class="text-sm text-gray-400">Solo pueden votar los que estuvieron en la cancha.</p>`;
+  } else if (candidates.length === 0) {
+    body = `<p class="text-sm text-gray-400">Todavía no hay candidatos para votar.</p>`;
+  } else {
+    body = `
+      ${myVote
+        ? `<p class="mb-2 text-xs text-club-green">✓ Ya votaste — podés cambiar tu voto tocando otro nombre.</p>`
+        : `<p class="mb-2 text-xs text-gray-400">Elegí a un compañero (no te podés votar a vos mismo).</p>`}
+      <div class="grid grid-cols-2 gap-2">
+        ${candidates.map((p) => `
+          <button onclick="voteMotm('${lastPlayed.id}','${p.id}')" class="btn rounded-lg px-3 py-2 text-sm font-medium ${myVote && myVote.votedForId === p.id ? "bg-club-green text-white shadow-sm" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}">${displayNameWithCaptain(p)}</button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+      <h3 class="mb-1 font-semibold text-gray-900">🏅 ¿Quién fue la figura vs ${escapeHtml(lastPlayed.opponent)}?</h3>
+      <p class="mb-3 text-xs text-gray-400">Votación abierta — el resultado se revela cuando un admin la cierre.</p>
+      ${body}
+    </div>
+  `;
+}
+
 function renderDashboard() {
   const match = state.nextMatch;
   const player = currentPlayer();
   const votes = match ? (state.votesByMatch[match.id] || []) : [];
   const myVote = votes.find((v) => v.id === state.playerId);
   const confirmados = votes.filter((v) => v.response === "VOY");
+  const lastPlayed = state.matches.find((m) => m.status === "JUGADO") || null;
 
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
@@ -870,6 +1019,7 @@ function renderDashboard() {
           `}
         </div>
       `}
+      ${motmVoteCard(lastPlayed)}
     </div>
   `;
 }
@@ -1033,6 +1183,7 @@ function renderAdminPartidoDetalle(matchId) {
   const attendanceMap = new Map(state.detailAttendance.map((a) => [a.id, !!a.present]));
   const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
   const activePlayers = state.players.filter((p) => p.active !== false);
+  const eligibleVoterCount = activePlayers.filter((p) => (attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id))).length;
 
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
@@ -1064,11 +1215,36 @@ function renderAdminPartidoDetalle(matchId) {
       </div>
 
       <div class="rounded-2xl bg-white p-5 shadow-sm">
-        <h3 class="mb-3 font-semibold text-gray-900">🏅 Figura del partido</h3>
-        <select onchange="setMotm('${matchId}', this.value)" class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
-          <option value="">Sin elegir</option>
-          ${playerOptions.map((p) => `<option value="${p.id}" ${match.motmPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
-        </select>
+        <h3 class="mb-1 font-semibold text-gray-900">🏅 Figura del partido</h3>
+        ${match.motmVotingOpen ? `
+          <p class="mb-3 text-xs text-gray-400">Votación abierta para los jugadores que estuvieron en la cancha. El resultado no se ve hasta que la cierres (ni siquiera acá).</p>
+          <p class="mb-3 text-sm text-gray-700">${state.detailMotmVotes.length} de ${eligibleVoterCount} ya votaron.</p>
+          <button onclick="closeMotmVoting('${matchId}')" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Cerrar votación y revelar</button>
+        ` : match.motmPlayerId ? `
+          <p class="mb-3 text-sm text-gray-700">${displayNameWithCaptain(state.playersById[match.motmPlayerId])}${state.detailMotmVotes.length > 0 ? ` <span class="text-xs text-gray-400">(elegida por votación, ${state.detailMotmVotes.length} votos)</span>` : ""}</p>
+          <div class="flex flex-wrap items-center gap-3">
+            <button onclick="openMotmVoting('${matchId}')" class="text-xs text-club-green hover:underline">Reabrir votación</button>
+            <details class="inline-block">
+              <summary class="cursor-pointer text-xs text-gray-500 hover:underline">Elegir manualmente</summary>
+              <select onchange="setMotm('${matchId}', this.value)" class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+                <option value="">Sin elegir</option>
+                ${playerOptions.map((p) => `<option value="${p.id}" ${match.motmPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+              </select>
+            </details>
+          </div>
+        ` : `
+          <p class="mb-3 text-xs text-gray-400">Dejá que los jugadores que estuvieron en la cancha elijan la figura entre ellos.</p>
+          <div class="flex flex-wrap items-center gap-3">
+            <button onclick="openMotmVoting('${matchId}')" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Abrir votación a los jugadores</button>
+            <details class="inline-block">
+              <summary class="cursor-pointer text-xs text-gray-500 hover:underline">o elegir manualmente</summary>
+              <select onchange="setMotm('${matchId}', this.value)" class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+                <option value="">Sin elegir</option>
+                ${playerOptions.map((p) => `<option value="${p.id}" ${match.motmPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+              </select>
+            </details>
+          </div>
+        `}
       </div>
 
       <div class="rounded-2xl bg-white p-5 shadow-sm">
