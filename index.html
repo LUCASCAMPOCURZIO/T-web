@@ -646,13 +646,19 @@ async function deleteSubcollection(matchId, name) {
   await batch.commit();
 }
 
+// Firestore NO borra solo las subcolecciones de un documento al borrarlo
+// (quedarían "huérfanas" pero se seguirían contando en Estadísticas, que
+// junta datos de todos los partidos) — por eso hay que borrar acá, a mano,
+// las 5 subcolecciones que puede llegar a tener un partido.
 window.deleteMatch = function (matchId) {
-  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas y votos. No se puede deshacer.")) return;
+  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas, asistencia y votos. No se puede deshacer.")) return;
   runAction(async () => {
     await Promise.all([
       deleteSubcollection(matchId, "votes"),
       deleteSubcollection(matchId, "goals"),
       deleteSubcollection(matchId, "cards"),
+      deleteSubcollection(matchId, "attendance"),
+      deleteSubcollection(matchId, "motmVotes"),
     ]);
     await deleteDoc(doc(db, "matches", matchId));
     showToast("Partido borrado.");
@@ -660,14 +666,16 @@ window.deleteMatch = function (matchId) {
 };
 
 window.revertMatch = function (matchId) {
-  if (!confirm('Esto borra el resultado y todos los goles/tarjetas cargados para este partido, y lo vuelve a dejar como "Programado". ¿Seguro?')) return;
+  if (!confirm('Esto borra el resultado, los goles/tarjetas, la asistencia y la figura del partido cargados, y lo vuelve a dejar como "Programado". ¿Seguro?')) return;
   runAction(async () => {
     await Promise.all([
       deleteSubcollection(matchId, "goals"),
       deleteSubcollection(matchId, "cards"),
+      deleteSubcollection(matchId, "attendance"),
+      deleteSubcollection(matchId, "motmVotes"),
     ]);
     await updateDoc(doc(db, "matches", matchId), {
-      status: "PROGRAMADO", ourScore: null, theirScore: null,
+      status: "PROGRAMADO", ourScore: null, theirScore: null, motmPlayerId: null, motmVotingOpen: false,
     });
     navigate("#/admin/partido");
   });
@@ -824,7 +832,11 @@ window.refreshStandings = function () {
 
 window.goToStats = function () {
   navigate("#/estadisticas");
-  if (!state.stats) loadStats();
+  // Siempre se recarga (no solo la primera vez): las estadísticas se arman
+  // con datos de todos los partidos, así que cualquier cambio hecho desde
+  // que se cargaron por última vez (borrar/deshacer un partido, cargar
+  // goles/tarjetas/asistencia, etc.) las puede haber dejado desactualizadas.
+  loadStats();
 };
 
 window.setStatsTab = function (tab) {
