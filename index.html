@@ -267,8 +267,11 @@ const state = {
   detailCards: [],
   detailAttendance: [], // asistencia real cargada por un admin para el partido que se está viendo
   detailMotmVotes: [], // votos de figura del partido del partido que se está viendo (admin)
+  detailComments: [], // comentarios del partido que se está viendo (admin, para poder moderar)
   lastPlayedAttendance: [], // asistencia del último partido jugado (para que un jugador pueda votar)
   lastPlayedMotmVotes: [], // mis votos de figura del último partido jugado (vista jugador)
+  nextMatchComments: [], // muro de comentarios del próximo partido (vista jugador)
+  lastPlayedComments: [], // muro de comentarios del último partido jugado (vista jugador)
   stats: null, // {goleadores, asistencias, tarjetas, porJugador}
   statsLoading: false,
   statsError: null,
@@ -330,6 +333,8 @@ function startListeners() {
     // jugador pueda votar la figura desde la pantalla principal).
     connectVotesListener(state.nextMatch ? state.nextMatch.id : null);
     connectLastPlayedListeners(lastPlayed ? lastPlayed.id : null);
+    connectNextMatchCommentsListener(state.nextMatch ? state.nextMatch.id : null);
+    connectLastPlayedCommentsListener(lastPlayed ? lastPlayed.id : null);
     route();
   }, (err) => console.error("matches listener:", err));
 }
@@ -367,6 +372,33 @@ function connectLastPlayedListeners(matchId) {
   }, (err) => console.error("lastPlayed motmVotes listener:", err));
 }
 
+// Fábrica de listeners de comentarios: se usa 3 veces (próximo partido,
+// último partido jugado, y el partido que esté mirando un admin en el
+// detalle), cada una guardando en un campo de state distinto, para poder
+// tener hasta 3 muros de comentarios "en vivo" a la vez sin repetir código.
+function makeCommentsListener(stateKey) {
+  let unsub = null;
+  let listenerMatchId = null;
+  return function connect(matchId) {
+    if (matchId === listenerMatchId) return;
+    listenerMatchId = matchId;
+    if (unsub) { unsub(); unsub = null; }
+    state[stateKey] = [];
+    if (!matchId) { route(); return; }
+    unsub = onSnapshot(
+      query(collection(db, "matches", matchId, "comments"), orderBy("createdAt", "asc")),
+      (snap) => {
+        state[stateKey] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        route();
+      },
+      (err) => console.error("comments listener:", err)
+    );
+  };
+}
+const connectNextMatchCommentsListener = makeCommentsListener("nextMatchComments");
+const connectLastPlayedCommentsListener = makeCommentsListener("lastPlayedComments");
+const connectDetailCommentsListener = makeCommentsListener("detailComments");
+
 let unsubDetail = { goals: null, cards: null, attendance: null, motmVotes: null };
 function connectDetailListeners(matchId) {
   if (state.detailMatchId === matchId) return;
@@ -375,6 +407,7 @@ function connectDetailListeners(matchId) {
   if (unsubDetail.cards) unsubDetail.cards();
   if (unsubDetail.attendance) unsubDetail.attendance();
   if (unsubDetail.motmVotes) unsubDetail.motmVotes();
+  connectDetailCommentsListener(matchId);
   if (!matchId) return;
   unsubDetail.goals = onSnapshot(collection(db, "matches", matchId, "goals"), (snap) => {
     state.detailGoals = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -649,9 +682,9 @@ async function deleteSubcollection(matchId, name) {
 // Firestore NO borra solo las subcolecciones de un documento al borrarlo
 // (quedarían "huérfanas" pero se seguirían contando en Estadísticas, que
 // junta datos de todos los partidos) — por eso hay que borrar acá, a mano,
-// las 5 subcolecciones que puede llegar a tener un partido.
+// las 6 subcolecciones que puede llegar a tener un partido.
 window.deleteMatch = function (matchId) {
-  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas, asistencia y votos. No se puede deshacer.")) return;
+  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas, asistencia, votos y comentarios. No se puede deshacer.")) return;
   runAction(async () => {
     await Promise.all([
       deleteSubcollection(matchId, "votes"),
@@ -659,6 +692,7 @@ window.deleteMatch = function (matchId) {
       deleteSubcollection(matchId, "cards"),
       deleteSubcollection(matchId, "attendance"),
       deleteSubcollection(matchId, "motmVotes"),
+      deleteSubcollection(matchId, "comments"),
     ]);
     await deleteDoc(doc(db, "matches", matchId));
     showToast("Partido borrado.");
@@ -671,11 +705,11 @@ window.deleteMatch = function (matchId) {
 // viejos se siguen contando en Estadísticas para siempre porque las
 // collection group queries no distinguen si el partido dueño todavía existe.
 window.cleanOrphanedMatchData = function () {
-  if (!confirm('Esto busca asistencia, votos, goles y tarjetas que hayan quedado de partidos ya borrados (no de los partidos actuales) y los elimina. ¿Continuar?')) return;
+  if (!confirm('Esto busca asistencia, votos, goles, tarjetas y comentarios que hayan quedado de partidos ya borrados (no de los partidos actuales) y los elimina. ¿Continuar?')) return;
   runAction(async () => {
     const matchesSnap = await getDocs(collection(db, "matches"));
     const validIds = new Set(matchesSnap.docs.map((d) => d.id));
-    const subcollections = ["votes", "goals", "cards", "attendance", "motmVotes"];
+    const subcollections = ["votes", "goals", "cards", "attendance", "motmVotes", "comments"];
     const orphanRefs = [];
     for (const name of subcollections) {
       const snap = await getDocs(collectionGroup(db, name));
@@ -974,6 +1008,110 @@ function renderAdminLogin() {
   `;
 }
 
+// =========================================================================
+// MURO DE COMENTARIOS Y REACCIONES (por partido)
+// =========================================================================
+const REACTION_EMOJIS = ["👍", "😂", "🔥", "👏"];
+
+// Cada jugador tiene como máximo UNA reacción por comentario (elegir otro
+// emoji cambia la reacción, tocar el mismo la saca) — se guarda como un mapa
+// simple { [playerId]: emoji } en el propio documento del comentario. Se
+// actualiza mandando el mapa entero ya modificado (no con arrayUnion ni
+// "field paths" con punto) para no depender de esas partes más avanzadas
+// del SDK, que además complicarían el mock usado en los tests.
+function findComment(commentId) {
+  return (
+    state.nextMatchComments.find((c) => c.id === commentId) ||
+    state.lastPlayedComments.find((c) => c.id === commentId) ||
+    state.detailComments.find((c) => c.id === commentId) ||
+    null
+  );
+}
+
+window.postComment = function (matchId, text) {
+  const trimmed = (text || "").trim();
+  if (!trimmed) return;
+  runAction(async () => {
+    await addDoc(collection(db, "matches", matchId, "comments"), {
+      authorId: state.playerId,
+      text: trimmed.slice(0, 500),
+      reactions: {},
+      createdAt: serverTimestamp(),
+    });
+    const input = document.getElementById(`comment-input-${matchId}`);
+    if (input) input.value = "";
+  });
+};
+
+window.deleteComment = function (matchId, commentId) {
+  if (!confirm("¿Borrar este comentario? No se puede deshacer.")) return;
+  runAction(async () => {
+    await deleteDoc(doc(db, "matches", matchId, "comments", commentId));
+  });
+};
+
+window.toggleReaction = function (matchId, commentId, emoji) {
+  runAction(async () => {
+    const comment = findComment(commentId);
+    const next = { ...((comment && comment.reactions) || {}) };
+    if (next[state.playerId] === emoji) delete next[state.playerId];
+    else next[state.playerId] = emoji;
+    await updateDoc(doc(db, "matches", matchId, "comments", commentId), { reactions: next });
+  });
+};
+
+// Se reutiliza para el próximo partido, el último jugado, y (en modo admin)
+// el partido que se esté viendo en el detalle — así todos comparten la
+// misma UI y las mismas reglas de Firestore.
+function commentsWallCard(matchId, comments, title) {
+  if (!matchId) return "";
+  const inputId = `comment-input-${matchId}`;
+  return `
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+      <h3 class="mb-3 font-semibold text-gray-900">💬 ${escapeHtml(title)}</h3>
+      ${comments.length === 0 ? `
+        <p class="mb-3 text-sm text-gray-400">Todavía no hay comentarios. ¡Sé el primero en escribir algo!</p>
+      ` : `
+        <ul class="mb-4 space-y-3">
+          ${comments.map((c) => {
+            const author = state.playersById[c.authorId];
+            const reactions = c.reactions || {};
+            const counts = {};
+            Object.values(reactions).forEach((e) => { counts[e] = (counts[e] || 0) + 1; });
+            const myReaction = state.playerId ? reactions[state.playerId] : null;
+            const canDelete = state.isAdmin || (state.playerId && c.authorId === state.playerId);
+            return `
+              <li class="rounded-xl bg-gray-50 p-3">
+                <div class="flex items-start justify-between gap-2">
+                  <p class="text-sm">
+                    <span class="font-semibold text-gray-900">${author ? displayNameWithCaptain(author) : "Alguien"}</span>
+                    <span class="ml-1.5 text-xs text-gray-400">${c.createdAt ? fmtShort.format(tsToDate(c.createdAt)) : ""}</span>
+                  </p>
+                  ${canDelete ? `<button onclick="deleteComment('${matchId}','${c.id}')" class="shrink-0 text-xs text-gray-400 hover:text-red-600" title="Borrar comentario">🗑</button>` : ""}
+                </div>
+                <p class="mt-1 whitespace-pre-wrap break-words text-sm text-gray-800">${escapeHtml(c.text)}</p>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  ${REACTION_EMOJIS.map((emoji) => `
+                    <button onclick="toggleReaction('${matchId}','${c.id}','${emoji}')" class="btn rounded-full px-2 py-0.5 text-xs ${myReaction === emoji ? "bg-club-green/15 text-club-green ring-1 ring-club-green" : "bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"}">
+                      ${emoji}${counts[emoji] ? ` ${counts[emoji]}` : ""}
+                    </button>
+                  `).join("")}
+                </div>
+              </li>
+            `;
+          }).join("")}
+        </ul>
+      `}
+      ${state.playerId ? `
+        <form onsubmit="event.preventDefault(); postComment('${matchId}', document.getElementById('${inputId}').value); return false;" class="flex gap-2">
+          <input id="${inputId}" maxlength="500" placeholder="Escribí algo…" class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <button type="submit" class="btn rounded-lg bg-club-green px-3 py-2 text-sm font-semibold text-white hover:opacity-90">Publicar</button>
+        </form>
+      ` : ""}
+    </section>
+  `;
+}
+
 // Tarjeta para votar la figura del último partido jugado (cuando un admin
 // abrió la votación) o para ver quién ganó (cuando ya se cerró). No se
 // muestra nada para partidos donde nunca se usó esta función.
@@ -1065,8 +1203,11 @@ function renderDashboard() {
             </ul>
           `}
         </div>
+
+        ${commentsWallCard(match.id, state.nextMatchComments, "Comentarios")}
       `}
       ${motmVoteCard(lastPlayed)}
+      ${commentsWallCard(lastPlayed ? lastPlayed.id : null, state.lastPlayedComments, "Comentarios del partido")}
     </div>
   `;
 }
@@ -1347,6 +1488,8 @@ function renderAdminPartidoDetalle(matchId) {
           <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-3 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar tarjeta</button>
         </form>
       </div>
+
+      ${commentsWallCard(matchId, state.detailComments, "Comentarios")}
     </div>
   `;
 }
