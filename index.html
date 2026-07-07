@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-<title>El Trébol FC</title>
+<title>Trébol FC</title>
 
 <!-- PWA: instalable en la pantalla de inicio -->
 <link rel="manifest" href="/manifest.json" />
@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="El Trébol FC" />
+<meta name="apple-mobile-web-app-title" content="Trébol FC" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -112,7 +112,7 @@
 
 <script type="module" async>
 /* =========================================================================
-   El Trébol FC — app de un solo archivo (HTML + CSS + JS), sin servidor
+   Trébol FC — app de un solo archivo (HTML + CSS + JS), sin servidor
    propio: los datos viven en Firebase Firestore y el hosting es estático
    (Vercel/GitHub Pages/lo que sea). Para actualizar la app en el futuro,
    alcanza con reemplazar este archivo.
@@ -507,17 +507,27 @@ async function loadStats() {
   // (match.motmPlayerId), que ya está siempre en memoria por el listener en
   // vivo — no hace falta pedirle nada más a Firestore para este dato.
   const figurasMap = new Map(motmRanking().map((f) => [f.id, f.count]));
+  // % de asistencia: sobre el total de partidos que jugó el equipo (no solo
+  // los que tienen asistencia/votos cargados), para que sea un número
+  // comparable entre jugadores independientemente de cuándo se sumaron al
+  // plantel. Si el equipo todavía no jugó ningún partido no hay % posible.
+  const totalJugados = state.matches.filter((m) => m.status === "JUGADO").length;
   // Tabla completa: una fila por CADA jugador (incluso sin ningún dato
   // todavía), para que se pueda comparar a todo el plantel de un vistazo.
-  const porJugador = state.players.map((p) => ({
-    id: p.id,
-    presencias: presenciasMap.get(p.id) || 0,
-    figuras: figurasMap.get(p.id) || 0,
-    goles: goleadoresMap.get(p.id)?.count || 0,
-    asistencias: asistenciasMap.get(p.id)?.count || 0,
-    amarillas: tarjetasMap.get(p.id)?.amarillas || 0,
-    rojas: tarjetasMap.get(p.id)?.rojas || 0,
-  })).sort((a, b) => displayName(state.playersById[a.id]).localeCompare(displayName(state.playersById[b.id]), "es"));
+  const porJugador = state.players.map((p) => {
+    const presencias = presenciasMap.get(p.id) || 0;
+    return {
+      id: p.id,
+      presencias,
+      totalJugados,
+      presenciaPct: totalJugados > 0 ? Math.round((presencias / totalJugados) * 100) : null,
+      figuras: figurasMap.get(p.id) || 0,
+      goles: goleadoresMap.get(p.id)?.count || 0,
+      asistencias: asistenciasMap.get(p.id)?.count || 0,
+      amarillas: tarjetasMap.get(p.id)?.amarillas || 0,
+      rojas: tarjetasMap.get(p.id)?.rojas || 0,
+    };
+  }).sort((a, b) => displayName(state.playersById[a.id]).localeCompare(displayName(state.playersById[b.id]), "es"));
   state.stats = {
     goleadores: [...goleadoresMap.values()].sort((a, b) => b.count - a.count),
     asistencias: [...asistenciasMap.values()].sort((a, b) => b.count - a.count),
@@ -947,8 +957,8 @@ function renderNavbar() {
     <header class="bg-gradient-to-r from-club-dark via-club-dark to-club-green shadow-md">
       <div class="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
         <a href="#/" class="flex items-center gap-2.5">
-          <img src="/icons/icon-192.png" alt="Escudo El Trébol FC" class="h-9 w-9 rounded-full ring-2 ring-white/25" />
-          <span class="font-display text-lg font-semibold uppercase tracking-wide text-white">El Trébol FC</span>
+          <img src="/icons/icon-192.png" alt="Escudo Trébol FC" class="h-9 w-9 rounded-full ring-2 ring-white/25" />
+          <span class="font-display text-lg font-semibold uppercase tracking-wide text-white">Trébol FC</span>
         </a>
         <nav class="flex flex-wrap items-center justify-end gap-1">
           <a href="#/estadisticas" onclick="goToStats()" class="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white">Estadísticas</a>
@@ -972,7 +982,7 @@ function renderQuienSos() {
   document.getElementById("app").innerHTML = `
     <div class="space-y-4">
       <div class="flex flex-col items-center pb-2 pt-4 text-center">
-        <img src="/icons/icon-192.png" alt="Escudo El Trébol FC" class="mb-3 h-16 w-16 rounded-full shadow-md" />
+        <img src="/icons/icon-192.png" alt="Escudo Trébol FC" class="mb-3 h-16 w-16 rounded-full shadow-md" />
         <h1 class="font-display text-2xl font-semibold uppercase tracking-wide text-gray-900">¿Quién sos?</h1>
         <p class="mt-1 text-sm text-gray-500">Elegí tu nombre para poder votar en los próximos partidos.</p>
       </div>
@@ -997,7 +1007,7 @@ function renderAdminLogin() {
     <div class="flex min-h-[60vh] items-center justify-center">
       <form onsubmit="event.preventDefault(); adminLogin(document.getElementById('pin').value); return false;" class="w-full max-w-xs space-y-4 rounded-2xl bg-white p-6 shadow-md ring-1 ring-gray-100">
         <div class="text-center">
-          <img src="/icons/icon-192.png" alt="Escudo El Trébol FC" class="mx-auto mb-2 h-12 w-12 rounded-full shadow-sm" />
+          <img src="/icons/icon-192.png" alt="Escudo Trébol FC" class="mx-auto mb-2 h-12 w-12 rounded-full shadow-sm" />
           <label for="pin" class="mb-1 block text-sm font-medium text-gray-700">PIN de administrador</label>
           <input id="pin" type="password" autocomplete="off" required
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-widest focus:border-club-green focus:outline-none focus:ring-1 focus:ring-club-green" />
@@ -1292,7 +1302,7 @@ function renderAdminPartido() {
             </div>
             <div id="score-form" class="hidden mt-3 space-y-3">
               <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-600">El Trébol FC</span>
+                <span class="text-sm text-gray-600">Trébol FC</span>
                 <input id="our-score" type="number" min="0" class="w-16 rounded-lg border border-gray-300 px-2 py-1 text-center text-sm" />
                 <span class="text-sm text-gray-400">vs</span>
                 <input id="their-score" type="number" min="0" class="w-16 rounded-lg border border-gray-300 px-2 py-1 text-center text-sm" />
@@ -1603,7 +1613,7 @@ function renderEstadisticas() {
 
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
       <h2 class="font-semibold text-gray-900">👥 Todos los jugadores</h2>
-      <p class="mb-3 text-xs text-gray-400">Presencias = asistencia real cargada por un admin después de cada partido (o "Voy" confirmado, para los partidos donde todavía no se cargó). 🏅 = veces elegido figura del partido.</p>
+      <p class="mb-3 text-xs text-gray-400">Asistencia = % de los partidos jugados por el equipo a los que fue cada uno (asistencia real cargada por un admin, o "Voy" confirmado para los partidos donde todavía no se cargó), con la cantidad exacta debajo. 🏅 = veces elegido figura del partido.</p>
       ${state.statsError ? `
         <p class="text-sm text-red-600">No se pudieron cargar las estadísticas: ${escapeHtml(state.statsError)}</p>
         <p class="mt-1 text-xs text-gray-400">Si el mensaje dice "Missing or insufficient permissions", probablemente falta publicar el <code>firestore.rules</code> actualizado en la consola de Firebase (pestaña Reglas).</p>
@@ -1616,7 +1626,7 @@ function renderEstadisticas() {
             <thead>
               <tr class="text-left text-xs text-gray-500">
                 <th class="py-1 pr-2">Jugador</th>
-                <th class="py-1 px-1 text-center">Presencias</th>
+                <th class="py-1 px-1 text-center">Asistencia</th>
                 <th class="py-1 px-1 text-center">🏅</th>
                 <th class="py-1 px-1 text-center">⚽</th>
                 <th class="py-1 px-1 text-center">👟</th>
@@ -1628,7 +1638,10 @@ function renderEstadisticas() {
               ${s.porJugador.map((row) => `
                 <tr class="text-gray-800">
                   <td class="py-1.5 pr-2">${displayNameWithCaptain(state.playersById[row.id])}</td>
-                  <td class="py-1.5 px-1 text-center">${row.presencias}</td>
+                  <td class="py-1.5 px-1 text-center">
+                    ${row.presenciaPct === null ? "-" : `${row.presenciaPct}%`}
+                    <span class="block text-[10px] leading-tight text-gray-400">${row.presencias}/${row.totalJugados}</span>
+                  </td>
                   <td class="py-1.5 px-1 text-center">${row.figuras}</td>
                   <td class="py-1.5 px-1 text-center">${row.goles}</td>
                   <td class="py-1.5 px-1 text-center">${row.asistencias}</td>
