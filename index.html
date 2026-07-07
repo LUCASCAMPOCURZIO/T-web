@@ -64,6 +64,15 @@
     width: 1.5rem; height: 1.5rem; border-radius: 9999px;
     font-size: .7rem; font-weight: 700; flex-shrink: 0;
   }
+  /* Cinta de capitán: una bandita (no un círculo) con una "C", como la que
+     se usa en la manga de la camiseta — en vez del emoji de medalla. */
+  .captain-armband {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.2rem; height: 1rem; padding: 0 3px; border-radius: 2px;
+    background: #1a1a1a; color: #fff; font-size: .62rem; font-weight: 800;
+    line-height: 1; box-shadow: inset 0 0 0 1.5px #d4af37; flex-shrink: 0;
+    vertical-align: middle;
+  }
 
   /* Pantalla de carga inicial, en CSS puro (nada de Tailwind) — así se ve
      apenas se abre la app, sin esperar a que bajen ni Tailwind ni las
@@ -167,11 +176,14 @@ function displayName(p) {
   return escapeHtml(p.nickname || p.name || "?");
 }
 
-// Prefijo con la insignia de capitán, para mostrar junto al nombre en
-// pantallas donde tiene sentido (plantel, quién sos, confirmados).
+// Prefijo con la cinta de capitán (una "C"), para mostrar junto al nombre
+// en pantallas donde tiene sentido (plantel, quién sos, confirmados).
+function captainBadge() {
+  return `<span class="captain-armband" title="Capitán">C</span>`;
+}
 function displayNameWithCaptain(p) {
   if (!p) return "?";
-  return (p.isCaptain ? "🎖️ " : "") + displayName(p);
+  return (p.isCaptain ? captainBadge() + " " : "") + displayName(p);
 }
 
 function pad(n) { return String(n).padStart(2, "0"); }
@@ -426,11 +438,16 @@ async function loadStats() {
       if (present) presenciasMap.set(p.id, (presenciasMap.get(p.id) || 0) + 1);
     });
   });
+  // Figura del partido: vive como campo en el propio documento del partido
+  // (match.motmPlayerId), que ya está siempre en memoria por el listener en
+  // vivo — no hace falta pedirle nada más a Firestore para este dato.
+  const figurasMap = new Map(motmRanking().map((f) => [f.id, f.count]));
   // Tabla completa: una fila por CADA jugador (incluso sin ningún dato
   // todavía), para que se pueda comparar a todo el plantel de un vistazo.
   const porJugador = state.players.map((p) => ({
     id: p.id,
     presencias: presenciasMap.get(p.id) || 0,
+    figuras: figurasMap.get(p.id) || 0,
     goles: goleadoresMap.get(p.id)?.count || 0,
     asistencias: asistenciasMap.get(p.id)?.count || 0,
     amarillas: tarjetasMap.get(p.id)?.amarillas || 0,
@@ -1130,7 +1147,6 @@ function renderEstadisticas() {
   if (!state.stats && !state.statsLoading && !state.statsError) loadStats();
   const s = state.stats;
   const capitan = state.players.find((p) => p.isCaptain);
-  const figuras = motmRanking();
   const tab = state.statsTab === "historicas" ? "historicas" : "torneo";
 
   const tabButton = (key, label) => `
@@ -1216,26 +1232,12 @@ function renderEstadisticas() {
   const historicasView = `
     <div>
       <p class="text-xs text-gray-400">Se van acumulando partido a partido, no dependen del torneo actual.</p>
-      ${capitan ? `<p class="mt-1 text-sm text-gray-600">🎖️ Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
+      ${capitan ? `<p class="mt-1 flex items-center gap-1.5 text-sm text-gray-600">${captainBadge()} Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
     </div>
 
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
-      <h2 class="mb-3 font-semibold text-gray-900">🏅 Figuras del partido</h2>
-      ${figuras.length === 0 ? `<p class="text-sm text-gray-400">Todavía no se eligió ninguna figura.</p>` : `
-        <ol class="space-y-2">
-          ${figuras.map((f, i) => `
-            <li class="flex items-center justify-between text-sm">
-              <span class="flex items-center gap-2 text-gray-800">${rankBadge(i + 1)} ${displayName(state.playersById[f.id])}</span>
-              <span class="font-medium text-gray-900">${f.count}</span>
-            </li>
-          `).join("")}
-        </ol>
-      `}
-    </section>
-
-    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
       <h2 class="font-semibold text-gray-900">👥 Todos los jugadores</h2>
-      <p class="mb-3 text-xs text-gray-400">Presencias = asistencia real cargada por un admin después de cada partido (o "Voy" confirmado, para los partidos donde todavía no se cargó).</p>
+      <p class="mb-3 text-xs text-gray-400">Presencias = asistencia real cargada por un admin después de cada partido (o "Voy" confirmado, para los partidos donde todavía no se cargó). 🏅 = veces elegido figura del partido.</p>
       ${state.statsError ? `
         <p class="text-sm text-red-600">No se pudieron cargar las estadísticas: ${escapeHtml(state.statsError)}</p>
         <p class="mt-1 text-xs text-gray-400">Si el mensaje dice "Missing or insufficient permissions", probablemente falta publicar el <code>firestore.rules</code> actualizado en la consola de Firebase (pestaña Reglas).</p>
@@ -1249,6 +1251,7 @@ function renderEstadisticas() {
               <tr class="text-left text-xs text-gray-500">
                 <th class="py-1 pr-2">Jugador</th>
                 <th class="py-1 px-1 text-center">Presencias</th>
+                <th class="py-1 px-1 text-center">🏅</th>
                 <th class="py-1 px-1 text-center">⚽</th>
                 <th class="py-1 px-1 text-center">👟</th>
                 <th class="py-1 px-1 text-center">🟨</th>
@@ -1260,6 +1263,7 @@ function renderEstadisticas() {
                 <tr class="text-gray-800">
                   <td class="py-1.5 pr-2">${displayNameWithCaptain(state.playersById[row.id])}</td>
                   <td class="py-1.5 px-1 text-center">${row.presencias}</td>
+                  <td class="py-1.5 px-1 text-center">${row.figuras}</td>
                   <td class="py-1.5 px-1 text-center">${row.goles}</td>
                   <td class="py-1.5 px-1 text-center">${row.asistencias}</td>
                   <td class="py-1.5 px-1 text-center">${row.amarillas}</td>
