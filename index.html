@@ -669,6 +669,30 @@ window.togglePlayerActive = function (playerId, active) {
   });
 };
 
+// Borrado permanente (distinto de "dar de baja"): esto sí saca al jugador
+// de la base de datos para siempre, no se puede deshacer. A diferencia de
+// borrar un partido, acá NO se limpia nada de lo viejo que lo referencia
+// (sus goles, tarjetas, presencias, veces que fue figura o se llevó el
+// bolso, comentarios, etc. siguen existiendo en esos partidos pasados) —
+// simplemente, como el documento del jugador ya no existe, esas pantallas
+// van a mostrar "?" en vez de su nombre ahí donde aparecía. El diálogo de
+// confirmación se lo avisa a quien lo borra.
+window.deletePlayerForever = function (playerId) {
+  const p = state.playersById[playerId];
+  const label = p ? (p.nickname || p.name) : "este jugador";
+  if (!confirm(
+    `¿Eliminar definitivamente a ${label}? No se puede deshacer.\n\n` +
+    `Si ya jugó partidos, cargó goles/tarjetas, pagó algo o tiene cualquier ` +
+    `historial, esos datos viejos van a seguir existiendo pero van a mostrar ` +
+    `"?" en vez de su nombre en Estadísticas y en el detalle de esos partidos.\n\n` +
+    `Si en cambio pensás que puede llegar a volver al equipo, mejor usá "Dar de baja".`
+  )) return;
+  runAction(async () => {
+    await deleteDoc(doc(db, "players", playerId));
+    showToast("Jugador eliminado definitivamente.");
+  });
+};
+
 // Solo puede haber un capitán a la vez: al designar uno nuevo, se le
 // quita la insignia a quien la tuviera antes (en el mismo batch).
 window.setCaptain = function (playerId) {
@@ -1466,6 +1490,9 @@ function plantelRow(p) {
           }
           <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
             ${p.active === false ? "Reactivar" : "Dar de baja"}
+          </button>
+          <button onclick="deletePlayerForever('${p.id}')" class="text-xs text-red-800 hover:underline" title="Borrado permanente: no se puede deshacer">
+            🗑️ Eliminar definitivamente
           </button>
         </span>
       </div>
