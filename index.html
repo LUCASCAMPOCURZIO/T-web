@@ -73,6 +73,14 @@
     line-height: 1; box-shadow: inset 0 0 0 1.5px #d4af37; flex-shrink: 0;
     vertical-align: middle;
   }
+  /* Insignia de DT: mismo tamaño/forma que la del capitán, pero en otro
+     color para distinguirlos a simple vista (azul club en vez de negro). */
+  .dt-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.2rem; height: 1rem; padding: 0 3px; border-radius: 2px;
+    background: #1d4ed8; color: #fff; font-size: .58rem; font-weight: 800;
+    line-height: 1; flex-shrink: 0; vertical-align: middle;
+  }
 
   /* Pantalla de carga inicial, en CSS puro (nada de Tailwind) — así se ve
      apenas se abre la app, sin esperar a que bajen ni Tailwind ni las
@@ -181,9 +189,18 @@ function displayName(p) {
 function captainBadge() {
   return `<span class="captain-armband" title="Capitán">C</span>`;
 }
+// Insignia de DT (cuerpo técnico) — mismo lugar que la del capitán, pero en
+// azul para distinguirla a simple vista. A diferencia del capitán, puede
+// haber más de un DT a la vez (por ejemplo, DT + ayudante de campo).
+function dtBadge() {
+  return `<span class="dt-badge" title="Director Técnico">DT</span>`;
+}
 function displayNameWithCaptain(p) {
   if (!p) return "?";
-  return (p.isCaptain ? captainBadge() + " " : "") + displayName(p);
+  const badges = [];
+  if (p.isCaptain) badges.push(captainBadge());
+  if (p.isDT) badges.push(dtBadge());
+  return (badges.length ? badges.join(" ") + " " : "") + displayName(p);
 }
 
 function pad(n) { return String(n).padStart(2, "0"); }
@@ -606,16 +623,18 @@ window.adminLogout = function () {
   });
 };
 
-window.addPlayer = function (name, nickname) {
+window.addPlayer = function (name, nickname, isDT) {
   runAction(async () => {
     if (!name || !name.trim()) throw new Error("Falta el nombre.");
     await addDoc(collection(db, "players"), {
       name: name.trim(), nickname: nickname && nickname.trim() ? nickname.trim() : null,
-      active: true, createdAt: serverTimestamp(),
+      active: true, isDT: !!isDT, createdAt: serverTimestamp(),
     });
-    showToast("Jugador agregado.");
+    showToast(isDT ? "Cuerpo técnico agregado." : "Jugador agregado.");
     document.getElementById("new-player-name").value = "";
     document.getElementById("new-player-nickname").value = "";
+    const dtCheckbox = document.getElementById("new-player-isdt");
+    if (dtCheckbox) dtCheckbox.checked = false;
   });
 };
 
@@ -644,6 +663,22 @@ window.setCaptain = function (playerId) {
 window.unsetCaptain = function (playerId) {
   runAction(async () => {
     await updateDoc(doc(db, "players", playerId), { isCaptain: false });
+  });
+};
+
+// A diferencia del capitán, puede haber más de un DT a la vez (por ejemplo,
+// DT + ayudante de campo), así que no hace falta quitarle la insignia a nadie
+// más al designar uno nuevo.
+window.setDT = function (playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { isDT: true });
+    showToast("Ahora forma parte del cuerpo técnico.");
+  });
+};
+
+window.unsetDT = function (playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { isDT: false });
   });
 };
 
@@ -1326,40 +1361,65 @@ function renderDashboard() {
   `;
 }
 
+// Fila reutilizada tanto para jugadores como para el cuerpo técnico: mismo
+// template (nombre+insignias, capitanía, baja, cumpleaños) para los dos
+// grupos, la única diferencia entre ambos es el botón de DT.
+function plantelRow(p) {
+  return `
+    <li class="rounded-lg bg-gray-50 px-3 py-2 text-sm">
+      <div class="flex items-center justify-between">
+        <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayNameWithCaptain(p)}</span>
+        <span class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+          ${p.isCaptain
+            ? `<button onclick="unsetCaptain('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar capitanía</button>`
+            : `<button onclick="setCaptain('${p.id}')" class="text-xs text-club-green hover:underline">Designar capitán</button>`
+          }
+          ${p.isDT
+            ? `<button onclick="unsetDT('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar de cuerpo técnico</button>`
+            : `<button onclick="setDT('${p.id}')" class="text-xs text-blue-700 hover:underline">Pasar a cuerpo técnico</button>`
+          }
+          <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
+            ${p.active === false ? "Reactivar" : "Dar de baja"}
+          </button>
+        </span>
+      </div>
+      ${birthdayPickerRow(p)}
+    </li>
+  `;
+}
+
 function renderAdminPlantel() {
+  const jugadores = state.players.filter((p) => !p.isDT);
+  const cuerpoTecnico = state.players.filter((p) => p.isDT);
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
       <h1 class="text-xl font-bold text-gray-900">Plantel</h1>
 
       <div class="rounded-2xl bg-white p-5 shadow-sm">
-        <h3 class="mb-3 font-semibold text-gray-900">Agregar jugador</h3>
-        <form onsubmit="event.preventDefault(); addPlayer(document.getElementById('new-player-name').value, document.getElementById('new-player-nickname').value); return false;" class="grid grid-cols-2 gap-3">
+        <h3 class="mb-3 font-semibold text-gray-900">Agregar</h3>
+        <form onsubmit="event.preventDefault(); addPlayer(document.getElementById('new-player-name').value, document.getElementById('new-player-nickname').value, document.getElementById('new-player-isdt').checked); return false;" class="grid grid-cols-2 gap-3">
           <input id="new-player-name" placeholder="Nombre" required class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-sm sm:col-span-1" />
           <input id="new-player-nickname" placeholder="Apodo (opcional)" class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-sm sm:col-span-1" />
+          <label class="col-span-2 flex items-center gap-2 text-sm text-gray-600">
+            <input id="new-player-isdt" type="checkbox" class="h-4 w-4 rounded border-gray-300" />
+            Es del cuerpo técnico (DT / ayudante), no jugador
+          </label>
           <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar</button>
         </form>
       </div>
 
       <div class="rounded-2xl bg-white p-5 shadow-sm">
-        <h3 class="mb-3 font-semibold text-gray-900">Jugadores (${state.players.length})</h3>
+        <h3 class="mb-3 font-semibold text-gray-900">🧑‍💼 Cuerpo técnico (${cuerpoTecnico.length})</h3>
+        ${cuerpoTecnico.length === 0
+          ? `<p class="text-sm text-gray-400">Todavía no cargaste a nadie del cuerpo técnico. Usá el formulario de arriba y tildá la casilla "Es del cuerpo técnico".</p>`
+          : `<ul class="space-y-1.5">${cuerpoTecnico.map(plantelRow).join("")}</ul>`
+        }
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">⚽ Jugadores (${jugadores.length})</h3>
         <ul class="space-y-1.5">
-          ${state.players.map((p) => `
-            <li class="rounded-lg bg-gray-50 px-3 py-2 text-sm">
-              <div class="flex items-center justify-between">
-                <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayNameWithCaptain(p)}</span>
-                <span class="flex items-center gap-3">
-                  ${p.isCaptain
-                    ? `<button onclick="unsetCaptain('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar capitanía</button>`
-                    : `<button onclick="setCaptain('${p.id}')" class="text-xs text-club-green hover:underline">Designar capitán</button>`
-                  }
-                  <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
-                    ${p.active === false ? "Reactivar" : "Dar de baja"}
-                  </button>
-                </span>
-              </div>
-              ${birthdayPickerRow(p)}
-            </li>
-          `).join("")}
+          ${jugadores.map(plantelRow).join("")}
         </ul>
       </div>
     </div>
