@@ -285,6 +285,7 @@ const state = {
   detailAttendance: [], // asistencia real cargada por un admin para el partido que se está viendo
   detailMotmVotes: [], // votos de figura del partido del partido que se está viendo (admin)
   detailComments: [], // comentarios del partido que se está viendo (admin, para poder moderar)
+  detailPayments: [], // cuánto pagó cada uno en el partido que se está viendo (solo admin)
   lastPlayedAttendance: [], // asistencia del último partido jugado (para que un jugador pueda votar)
   lastPlayedMotmVotes: [], // mis votos de figura del último partido jugado (vista jugador)
   nextMatchComments: [], // muro de comentarios del próximo partido (vista jugador)
@@ -416,7 +417,7 @@ const connectNextMatchCommentsListener = makeCommentsListener("nextMatchComments
 const connectLastPlayedCommentsListener = makeCommentsListener("lastPlayedComments");
 const connectDetailCommentsListener = makeCommentsListener("detailComments");
 
-let unsubDetail = { goals: null, cards: null, attendance: null, motmVotes: null };
+let unsubDetail = { goals: null, cards: null, attendance: null, motmVotes: null, payments: null };
 function connectDetailListeners(matchId) {
   if (state.detailMatchId === matchId) return;
   state.detailMatchId = matchId;
@@ -424,6 +425,7 @@ function connectDetailListeners(matchId) {
   if (unsubDetail.cards) unsubDetail.cards();
   if (unsubDetail.attendance) unsubDetail.attendance();
   if (unsubDetail.motmVotes) unsubDetail.motmVotes();
+  if (unsubDetail.payments) unsubDetail.payments();
   connectDetailCommentsListener(matchId);
   if (!matchId) return;
   unsubDetail.goals = onSnapshot(collection(db, "matches", matchId, "goals"), (snap) => {
@@ -444,6 +446,12 @@ function connectDetailListeners(matchId) {
     state.detailMotmVotes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     route();
   }, (err) => console.error("motmVotes listener:", err));
+  // Solo un admin puede leer esta subcolección (ver firestore.rules) — como
+  // esta pantalla de detalle es admin-only, siempre va a poder.
+  unsubDetail.payments = onSnapshot(collection(db, "matches", matchId, "payments"), (snap) => {
+    state.detailPayments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("payments listener:", err));
 }
 
 async function loadStats() {
@@ -524,6 +532,9 @@ async function loadStats() {
   // (match.motmPlayerId), que ya está siempre en memoria por el listener en
   // vivo — no hace falta pedirle nada más a Firestore para este dato.
   const figurasMap = new Map(motmRanking().map((f) => [f.id, f.count]));
+  // Lavado del bolso: mismo mecanismo (campo en el propio documento del
+  // partido), ya en memoria por el listener en vivo.
+  const bolsosMap = new Map(bolsoRanking().map((b) => [b.id, b.count]));
   // % de asistencia: sobre el total de partidos que jugó el equipo (no solo
   // los que tienen asistencia/votos cargados), para que sea un número
   // comparable entre jugadores independientemente de cuándo se sumaron al
@@ -539,6 +550,7 @@ async function loadStats() {
       totalJugados,
       presenciaPct: totalJugados > 0 ? Math.round((presencias / totalJugados) * 100) : null,
       figuras: figurasMap.get(p.id) || 0,
+      bolsos: bolsosMap.get(p.id) || 0,
       goles: goleadoresMap.get(p.id)?.count || 0,
       asistencias: asistenciasMap.get(p.id)?.count || 0,
       amarillas: tarjetasMap.get(p.id)?.amarillas || 0,
@@ -749,7 +761,7 @@ async function deleteSubcollection(matchId, name) {
 // junta datos de todos los partidos) — por eso hay que borrar acá, a mano,
 // las 6 subcolecciones que puede llegar a tener un partido.
 window.deleteMatch = function (matchId) {
-  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas, asistencia, votos y comentarios. No se puede deshacer.")) return;
+  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas, asistencia, votos, comentarios y pagos. No se puede deshacer.")) return;
   runAction(async () => {
     await Promise.all([
       deleteSubcollection(matchId, "votes"),
@@ -758,6 +770,7 @@ window.deleteMatch = function (matchId) {
       deleteSubcollection(matchId, "attendance"),
       deleteSubcollection(matchId, "motmVotes"),
       deleteSubcollection(matchId, "comments"),
+      deleteSubcollection(matchId, "payments"),
     ]);
     await deleteDoc(doc(db, "matches", matchId));
     showToast("Partido borrado.");
@@ -770,11 +783,11 @@ window.deleteMatch = function (matchId) {
 // viejos se siguen contando en Estadísticas para siempre porque las
 // collection group queries no distinguen si el partido dueño todavía existe.
 window.cleanOrphanedMatchData = function () {
-  if (!confirm('Esto busca asistencia, votos, goles, tarjetas y comentarios que hayan quedado de partidos ya borrados (no de los partidos actuales) y los elimina. ¿Continuar?')) return;
+  if (!confirm('Esto busca asistencia, votos, goles, tarjetas, comentarios y pagos que hayan quedado de partidos ya borrados (no de los partidos actuales) y los elimina. ¿Continuar?')) return;
   runAction(async () => {
     const matchesSnap = await getDocs(collection(db, "matches"));
     const validIds = new Set(matchesSnap.docs.map((d) => d.id));
-    const subcollections = ["votes", "goals", "cards", "attendance", "motmVotes", "comments"];
+    const subcollections = ["votes", "goals", "cards", "attendance", "motmVotes", "comments", "payments"];
     const orphanRefs = [];
     for (const name of subcollections) {
       const snap = await getDocs(collectionGroup(db, name));
@@ -810,6 +823,7 @@ window.revertMatch = function (matchId) {
     ]);
     await updateDoc(doc(db, "matches", matchId), {
       status: "PROGRAMADO", ourScore: null, theirScore: null, motmPlayerId: null, motmVotingOpen: false,
+      bolsoPlayerId: null,
     });
     navigate("#/admin/partido");
   });
@@ -902,6 +916,59 @@ window.voteMotm = function (matchId, votedForId) {
       votedForId, votedAt: serverTimestamp(),
     });
     showToast("¡Voto registrado! Gracias.");
+  });
+};
+
+// Bolso de lavado: igual que la figura del partido, es un campo más en el
+// documento del partido (matches.bolsoPlayerId) — no hace falta colección
+// aparte ni votación, lo designa directamente un admin.
+window.setBolso = function (matchId, playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "matches", matchId), { bolsoPlayerId: playerId || null });
+    showToast(playerId ? "Bolso asignado." : "Bolso sin asignar.");
+  });
+};
+
+// Plata de la cancha: cuánto pagó cada jugador ese partido. El detalle vive
+// en una subcolección de solo-lectura-para-admin (ver firestore.rules), pero
+// el TOTAL se guarda además como campo público en el propio documento del
+// partido (matches.totalRecaudado) para que todo el equipo lo vea sin
+// necesidad de poder leer cuánto puso cada uno. Lo recalculamos a mano acá
+// (en vez de esperar a que vuelva el listener) para que el total se vea al
+// toque en la pantalla del admin.
+window.setPayment = function (matchId, playerId, amountStr) {
+  runAction(async () => {
+    const trimmed = (amountStr || "").trim();
+    const amount = trimmed === "" ? null : Number(trimmed);
+    if (amount !== null && (isNaN(amount) || amount < 0)) throw new Error("Ese monto no es válido.");
+    if (amount === null) {
+      await deleteDoc(doc(db, "matches", matchId, "payments", playerId));
+    } else {
+      await setDoc(doc(db, "matches", matchId, "payments", playerId), { amount });
+    }
+    const others = state.detailPayments.filter((p) => p.id !== playerId);
+    const total = others.reduce((sum, p) => sum + (p.amount || 0), 0) + (amount || 0);
+    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: total });
+  });
+};
+
+// Atajo para cargar la misma cuota a todos los jugadores activos de una
+// sola vez (lo normal es que todos pongan lo mismo), sin perder la
+// posibilidad de después ajustar a mano algún caso puntual (alguien que
+// pagó de más/de menos, invitados, etc.) con el campo de arriba.
+window.applySuggestedPayment = function (matchId, amountStr) {
+  const amount = Number((amountStr || "").trim());
+  if (isNaN(amount) || amount <= 0) { showToast("Poné un monto válido.", "error"); return; }
+  if (!confirm(`¿Aplicar $${amount} a todos los jugadores activos? Esto pisa los montos que ya hayas cargado.`)) return;
+  runAction(async () => {
+    const activePlayers = state.players.filter((p) => p.active !== false);
+    const batch = writeBatch(db);
+    for (const p of activePlayers) {
+      batch.set(doc(db, "matches", matchId, "payments", p.id), { amount });
+    }
+    await batch.commit();
+    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: amount * activePlayers.length });
+    showToast("Cuota aplicada a todos.");
   });
 };
 
@@ -1355,6 +1422,11 @@ function renderDashboard() {
 
         ${commentsWallCard(match.id, state.nextMatchComments, "Comentarios")}
       `}
+      ${lastPlayed && lastPlayed.totalRecaudado ? `
+        <div class="flex items-center gap-2 rounded-2xl bg-white p-4 text-sm text-gray-700 shadow-sm ring-1 ring-gray-100">
+          <span class="text-lg">💰</span> Se juntaron <span class="font-semibold text-gray-900">$${lastPlayed.totalRecaudado}</span> vs ${escapeHtml(lastPlayed.opponent)}
+        </div>
+      ` : ""}
       ${motmVoteCard(lastPlayed)}
       ${commentsWallCard(lastPlayed ? lastPlayed.id : null, state.lastPlayedComments, "Comentarios del partido")}
     </div>
@@ -1549,6 +1621,8 @@ function renderAdminPartidoDetalle(matchId) {
   const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
   const activePlayers = state.players.filter((p) => p.active !== false);
   const eligibleVoterCount = activePlayers.filter((p) => (attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id))).length;
+  const paymentsMap = new Map(state.detailPayments.map((p) => [p.id, p.amount]));
+  const paymentsTotal = state.detailPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
@@ -1610,6 +1684,37 @@ function renderAdminPartidoDetalle(matchId) {
             </details>
           </div>
         `}
+      </div>
+
+      <div id="bolso-card" class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-1 font-semibold text-gray-900">🧺 Bolso de lavado</h3>
+        <p class="mb-3 text-xs text-gray-400">Quién se lleva el bolso a lavar esta semana.</p>
+        <select onchange="setBolso('${matchId}', this.value)" class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+          <option value="">Sin asignar</option>
+          ${playerOptions.map((p) => `<option value="${p.id}" ${match.bolsoPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+        </select>
+      </div>
+
+      <div id="payments-card" class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-1 font-semibold text-gray-900">💰 Plata del partido</h3>
+        <p class="mb-3 text-xs text-gray-400">Cuánto pagó cada uno. Este detalle solo lo ven los admins; el total recaudado sí es público y lo ve todo el equipo.</p>
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <input id="payment-suggested-${matchId}" type="number" min="0" step="1" placeholder="Cuota" class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+          <button onclick="applySuggestedPayment('${matchId}', document.getElementById('payment-suggested-${matchId}').value)" class="text-xs text-club-green hover:underline">Aplicar a todos</button>
+        </div>
+        ${activePlayers.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>` : `
+          <ul class="space-y-1.5">
+            ${activePlayers.map((p) => `
+              <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                <span class="text-gray-800">${displayNameWithCaptain(p)}</span>
+                <span class="flex items-center gap-1 text-gray-500">
+                  $<input type="number" min="0" step="1" value="${paymentsMap.has(p.id) ? paymentsMap.get(p.id) : ""}" placeholder="0" onchange="setPayment('${matchId}','${p.id}', this.value)" class="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm text-right" />
+                </span>
+              </li>
+            `).join("")}
+          </ul>
+        `}
+        <p id="payments-total" class="mt-3 text-sm font-semibold text-gray-900">Total recaudado: $${paymentsTotal}</p>
       </div>
 
       <div class="rounded-2xl bg-white p-5 shadow-sm">
@@ -1682,6 +1787,19 @@ function motmRanking() {
     const entry = counts.get(m.motmPlayerId) || { id: m.motmPlayerId, count: 0 };
     entry.count += 1;
     counts.set(m.motmPlayerId, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
+// Ranking de lavado del bolso: mismo mecanismo que la figura del partido
+// (campo en el propio documento del partido, matches.bolsoPlayerId).
+function bolsoRanking() {
+  const counts = new Map();
+  for (const m of state.matches) {
+    if (m.status !== "JUGADO" || !m.bolsoPlayerId) continue;
+    const entry = counts.get(m.bolsoPlayerId) || { id: m.bolsoPlayerId, count: 0 };
+    entry.count += 1;
+    counts.set(m.bolsoPlayerId, entry);
   }
   return [...counts.values()].sort((a, b) => b.count - a.count);
 }
@@ -1780,7 +1898,7 @@ function renderEstadisticas() {
 
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
       <h2 class="font-semibold text-gray-900">👥 Todos los jugadores</h2>
-      <p class="mb-3 text-xs text-gray-400">Asistencia = % de los partidos jugados por el equipo a los que fue cada uno (asistencia real cargada por un admin, o "Voy" confirmado para los partidos donde todavía no se cargó), con la cantidad exacta debajo. 🏅 = veces elegido figura del partido.</p>
+      <p class="mb-3 text-xs text-gray-400">Asistencia = % de los partidos jugados por el equipo a los que fue cada uno (asistencia real cargada por un admin, o "Voy" confirmado para los partidos donde todavía no se cargó), con la cantidad exacta debajo. 🏅 = veces elegido figura del partido. 🧺 = veces que se llevó el bolso a lavar.</p>
       ${state.statsError ? `
         <p class="text-sm text-red-600">No se pudieron cargar las estadísticas: ${escapeHtml(state.statsError)}</p>
         <p class="mt-1 text-xs text-gray-400">Si el mensaje dice "Missing or insufficient permissions", probablemente falta publicar el <code>firestore.rules</code> actualizado en la consola de Firebase (pestaña Reglas).</p>
@@ -1795,6 +1913,7 @@ function renderEstadisticas() {
                 <th class="py-1 pr-2">Jugador</th>
                 <th class="py-1 px-1 text-center">Asistencia</th>
                 <th class="py-1 px-1 text-center">🏅</th>
+                <th class="py-1 px-1 text-center">🧺</th>
                 <th class="py-1 px-1 text-center">⚽</th>
                 <th class="py-1 px-1 text-center">👟</th>
                 <th class="py-1 px-1 text-center">🟨</th>
@@ -1810,6 +1929,7 @@ function renderEstadisticas() {
                     <span class="block text-[10px] leading-tight text-gray-400">${row.presencias}/${row.totalJugados}</span>
                   </td>
                   <td class="py-1.5 px-1 text-center">${row.figuras}</td>
+                  <td class="py-1.5 px-1 text-center">${row.bolsos}</td>
                   <td class="py-1.5 px-1 text-center">${row.goles}</td>
                   <td class="py-1.5 px-1 text-center">${row.asistencias}</td>
                   <td class="py-1.5 px-1 text-center">${row.amarillas}</td>
