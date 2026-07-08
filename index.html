@@ -647,12 +647,23 @@ window.unsetCaptain = function (playerId) {
   });
 };
 
-// Se guarda la fecha de nacimiento completa (no solo día y mes) porque el
-// input de fecha del navegador la pide igual, y de yapa permite mostrar
-// "cumple X años" y no solo "hoy es su cumpleaños".
-window.setBirthday = function (playerId, dateStr) {
+// Se guarda la fecha de nacimiento completa (no solo día y mes) porque de
+// yapa permite mostrar "cumple X años" y no solo "hoy es su cumpleaños".
+// Se arma con 3 <select> de día/mes/año en vez de un <input type="date">:
+// el date picker nativo del celular se porta mal en varios navegadores
+// (Android en particular) al tipear años lejanos como 1994 — con un solo
+// dígito ya da por terminada la carga. Con 3 selects no depende para nada
+// del picker nativo del sistema, así que no puede pasar eso.
+window.setBirthdayPart = function (playerId, container) {
+  const day = container.querySelector('[data-part="day"]').value;
+  const month = container.querySelector('[data-part="month"]').value;
+  const year = container.querySelector('[data-part="year"]').value;
+  if (!day || !month || !year) return; // esperamos a que se elijan los 3
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
   runAction(async () => {
-    await updateDoc(doc(db, "players", playerId), { birthday: dateStr || null });
+    await updateDoc(doc(db, "players", playerId), { birthday: `${year}-${mm}-${dd}` });
+    showToast("Cumpleaños guardado.");
   });
 };
 
@@ -1160,6 +1171,43 @@ function formatBirthdayShort(birthday) {
   return `${day}/${month}`;
 }
 
+const MESES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+// 3 <select> (día/mes/año) para cargar el cumpleaños de un jugador desde
+// Plantel — ver el comentario de setBirthdayPart para el porqué de no usar
+// un <input type="date"> nativo.
+function birthdayPickerRow(p) {
+  const [by, bm, bd] = p.birthday
+    ? p.birthday.split("-").map((n) => parseInt(n, 10))
+    : [null, null, null];
+  const currentYear = parseInt(todayPartsBA().year, 10);
+  const years = [];
+  for (let y = currentYear - 80; y <= currentYear; y++) years.push(y);
+  return `
+    <div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-gray-500" data-birthday-row>
+      <span>🎂</span>
+      <select data-part="day" onchange="setBirthdayPart('${p.id}', this.closest('[data-birthday-row]'))" class="rounded border border-gray-300 px-1.5 py-1 text-xs">
+        <option value="">Día</option>
+        ${Array.from({ length: 31 }, (_, i) => i + 1)
+          .map((d) => `<option value="${d}" ${bd === d ? "selected" : ""}>${d}</option>`)
+          .join("")}
+      </select>
+      <select data-part="month" onchange="setBirthdayPart('${p.id}', this.closest('[data-birthday-row]'))" class="rounded border border-gray-300 px-1.5 py-1 text-xs">
+        <option value="">Mes</option>
+        ${MESES.map((m, i) => `<option value="${i + 1}" ${bm === i + 1 ? "selected" : ""}>${m}</option>`).join("")}
+      </select>
+      <select data-part="year" onchange="setBirthdayPart('${p.id}', this.closest('[data-birthday-row]'))" class="rounded border border-gray-300 px-1.5 py-1 text-xs">
+        <option value="">Año</option>
+        ${years.map((y) => `<option value="${y}" ${by === y ? "selected" : ""}>${y}</option>`).join("")}
+      </select>
+      ${p.birthday ? `<span class="text-gray-400">(${formatBirthdayShort(p.birthday)})</span>` : ""}
+    </div>
+  `;
+}
+
 // Cartel de cumpleaños en la pantalla principal: no se muestra nada si hoy
 // no cumple años ningún jugador activo.
 function birthdayBanner() {
@@ -1309,11 +1357,7 @@ function renderAdminPlantel() {
                   </button>
                 </span>
               </div>
-              <div class="mt-1.5 flex items-center gap-2 text-xs text-gray-500">
-                <span>🎂</span>
-                <input type="date" value="${p.birthday || ""}" onchange="setBirthday('${p.id}', this.value)" class="rounded border border-gray-300 px-2 py-1 text-xs" />
-                ${p.birthday ? `<span class="text-gray-400">(${formatBirthdayShort(p.birthday)})</span>` : `<span class="text-gray-400">Sin cargar</span>`}
-              </div>
+              ${birthdayPickerRow(p)}
             </li>
           `).join("")}
         </ul>
