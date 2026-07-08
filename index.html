@@ -650,6 +650,19 @@ window.addPlayer = function (name, nickname, isDT) {
   });
 };
 
+// Corregir nombre/apodo de un jugador ya cargado (por ejemplo, un error de
+// tipeo al agregarlo). No hace falta pedir confirmación: es un dato de
+// texto, no algo destructivo como borrar o dar de baja.
+window.editPlayer = function (playerId, name, nickname) {
+  runAction(async () => {
+    if (!name || !name.trim()) throw new Error("Falta el nombre.");
+    await updateDoc(doc(db, "players", playerId), {
+      name: name.trim(), nickname: nickname && nickname.trim() ? nickname.trim() : null,
+    });
+    showToast("Nombre actualizado.");
+  });
+};
+
 window.togglePlayerActive = function (playerId, active) {
   runAction(async () => {
     await updateDoc(doc(db, "players", playerId), { active });
@@ -1455,6 +1468,14 @@ function plantelRow(p) {
           </button>
         </span>
       </div>
+      <details class="mt-1">
+        <summary class="cursor-pointer text-xs text-gray-400 hover:underline">✏️ Editar nombre</summary>
+        <form onsubmit="event.preventDefault(); editPlayer('${p.id}', document.getElementById('edit-name-${p.id}').value, document.getElementById('edit-nickname-${p.id}').value); return false;" class="mt-2 grid grid-cols-2 gap-2">
+          <input id="edit-name-${p.id}" value="${escapeHtml(p.name || "")}" required placeholder="Nombre" class="col-span-2 rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-1" />
+          <input id="edit-nickname-${p.id}" value="${p.nickname ? escapeHtml(p.nickname) : ""}" placeholder="Apodo (opcional)" class="col-span-2 rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-1" />
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 sm:col-span-1">Guardar nombre</button>
+        </form>
+      </details>
       ${birthdayPickerRow(p)}
     </li>
   `;
