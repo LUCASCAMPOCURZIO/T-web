@@ -972,16 +972,17 @@ window.setPayment = function (matchId, playerId, amountStr) {
 window.applySuggestedPayment = function (matchId, amountStr) {
   const amount = Number((amountStr || "").trim());
   if (isNaN(amount) || amount <= 0) { showToast("Poné un monto válido.", "error"); return; }
-  if (!confirm(`¿Aplicar $${amount} a todos los jugadores activos? Esto pisa los montos que ya hayas cargado.`)) return;
+  const presentIds = presentPlayerIdsForMatch(matchId);
+  if (presentIds.length === 0) { showToast("Todavía no marcaste a nadie como presente en Asistencia.", "error"); return; }
+  if (!confirm(`¿Aplicar $${amount} a los ${presentIds.length} jugadores presentes? Esto pisa los montos que ya hayas cargado.`)) return;
   runAction(async () => {
-    const activePlayers = state.players.filter((p) => p.active !== false);
     const batch = writeBatch(db);
-    for (const p of activePlayers) {
-      batch.set(doc(db, "matches", matchId, "payments", p.id), { amount });
+    for (const id of presentIds) {
+      batch.set(doc(db, "matches", matchId, "payments", id), { amount });
     }
     await batch.commit();
-    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: amount * activePlayers.length });
-    showToast("Cuota aplicada a todos.");
+    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: amount * presentIds.length });
+    showToast("Cuota aplicada a los presentes.");
   });
 };
 
@@ -1482,8 +1483,14 @@ function plantelRow(p) {
 }
 
 function renderAdminPlantel() {
-  const jugadores = state.players.filter((p) => !p.isDT);
-  const cuerpoTecnico = state.players.filter((p) => p.isDT);
+  // Los dados de baja NO se borran de Firestore (para no perder sus goles,
+  // tarjetas, presencias, etc. de las estadísticas históricas), pero se
+  // sacan de las listas principales para que no queden acumulándose ahí
+  // para siempre — quedan aparte, en "Dados de baja", plegado por default.
+  const activos = state.players.filter((p) => p.active !== false);
+  const bajas = state.players.filter((p) => p.active === false);
+  const jugadores = activos.filter((p) => !p.isDT);
+  const cuerpoTecnico = activos.filter((p) => p.isDT);
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
       <h1 class="text-xl font-bold text-gray-900">Plantel</h1>
@@ -1515,6 +1522,16 @@ function renderAdminPlantel() {
           ${jugadores.map(plantelRow).join("")}
         </ul>
       </div>
+
+      ${bajas.length > 0 ? `
+        <details class="rounded-2xl bg-white p-4 shadow-sm">
+          <summary class="cursor-pointer select-none text-sm font-medium text-gray-500">📥 Dados de baja (${bajas.length})</summary>
+          <p class="mt-2 text-xs text-gray-400">No aparecen para votar ni para elegir asistencia, pero sus estadísticas viejas se siguen viendo bien. Reactivalos desde acá si vuelven.</p>
+          <ul class="mt-3 space-y-1.5">
+            ${bajas.map(plantelRow).join("")}
+          </ul>
+        </details>
+      ` : ""}
     </div>
   `;
 }
@@ -1616,6 +1633,21 @@ function playerOptionsForMatch(matchId) {
   return [...confirmed, ...rest];
 }
 
+// IDs de los jugadores activos que están (o probablemente estén) presentes
+// en un partido: mismo criterio que usa la sección "✅ Asistencia" (el
+// casillero explícito si ya se tocó, si no el voto "Voy" como aproximación).
+// Se usa para no ofrecer cobrarle a alguien que no fue — asume que ya se
+// llamó a connectDetailListeners(matchId) para este partido (state.detailAttendance
+// corresponde al partido que se está mirando).
+function presentPlayerIdsForMatch(matchId) {
+  const attendanceMap = new Map(state.detailAttendance.map((a) => [a.id, !!a.present]));
+  const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
+  return state.players
+    .filter((p) => p.active !== false)
+    .filter((p) => (attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id)))
+    .map((p) => p.id);
+}
+
 function renderAdminPartidoDetalle(matchId) {
   const match = state.matches.find((m) => m.id === matchId);
   if (!match) {
@@ -1648,6 +1680,12 @@ function renderAdminPartidoDetalle(matchId) {
   const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
   const activePlayers = state.players.filter((p) => p.active !== false);
   const eligibleVoterCount = activePlayers.filter((p) => (attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id))).length;
+  // La plata solo se le cobra a quien fue: se arma con el mismo criterio
+  // que "✅ Asistencia" (present explícito, o el voto "Voy" como
+  // aproximación mientras nadie tocó su casillero) — así, si Lucas marca
+  // primero quién asistió, abajo en "Plata del partido" solo aparecen esos.
+  const presentIdsSet = new Set(presentPlayerIdsForMatch(matchId));
+  const presentPlayers = activePlayers.filter((p) => presentIdsSet.has(p.id));
   const paymentsMap = new Map(state.detailPayments.map((p) => [p.id, p.amount]));
   const paymentsTotal = state.detailPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
@@ -1724,14 +1762,16 @@ function renderAdminPartidoDetalle(matchId) {
 
       <div id="payments-card" class="rounded-2xl bg-white p-5 shadow-sm">
         <h3 class="mb-1 font-semibold text-gray-900">💰 Plata del partido</h3>
-        <p class="mb-3 text-xs text-gray-400">Cuánto pagó cada uno. Este detalle solo lo ven los admins; el total recaudado sí es público y lo ve todo el equipo.</p>
-        <div class="mb-3 flex flex-wrap items-center gap-2">
-          <input id="payment-suggested-${matchId}" type="number" min="0" step="1" placeholder="Cuota" class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-          <button onclick="applySuggestedPayment('${matchId}', document.getElementById('payment-suggested-${matchId}').value)" class="text-xs text-club-green hover:underline">Aplicar a todos</button>
-        </div>
-        ${activePlayers.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>` : `
+        <p class="mb-3 text-xs text-gray-400">Cuánto pagó cada uno de los que asistieron (marcá primero en "✅ Asistencia" quién estuvo, así solo te aparecen esos acá para cobrarles). Este detalle solo lo ven los admins; el total recaudado sí es público y lo ve todo el equipo.</p>
+        ${presentPlayers.length === 0 ? `
+          <p class="text-sm text-gray-400">Todavía no hay nadie marcado como presente. Tildá a los que fueron en "✅ Asistencia" arriba y van a aparecer acá para cobrarles.</p>
+        ` : `
+          <div class="mb-3 flex flex-wrap items-center gap-2">
+            <input id="payment-suggested-${matchId}" type="number" min="0" step="1" placeholder="Cuota" class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+            <button onclick="applySuggestedPayment('${matchId}', document.getElementById('payment-suggested-${matchId}').value)" class="text-xs text-club-green hover:underline">Aplicar a todos los presentes</button>
+          </div>
           <ul class="space-y-1.5">
-            ${activePlayers.map((p) => `
+            ${presentPlayers.map((p) => `
               <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
                 <span class="text-gray-800">${displayNameWithCaptain(p)}</span>
                 <span class="flex items-center gap-1 text-gray-500">
