@@ -1522,7 +1522,10 @@ function renderDashboard() {
   const player = currentPlayer();
   const votes = match ? (state.votesByMatch[match.id] || []) : [];
   const myVote = votes.find((v) => v.id === state.playerId);
-  const confirmados = votes.filter((v) => v.response === "VOY");
+  // Si alguien votó "Voy" y después se lo eliminó definitivamente del
+  // plantel, su voto queda huérfano (ya no hay jugador al que apuntar) —
+  // lo filtramos para no mostrar un "?" fantasma en Confirmados.
+  const confirmados = votes.filter((v) => v.response === "VOY" && state.playersById[v.id]);
   const lastPlayed = state.matches.find((m) => m.status === "JUGADO") || null;
 
   document.getElementById("app").innerHTML = `
@@ -1757,9 +1760,11 @@ function renderAdminPartido() {
 
 function playerOptionsForMatch(matchId) {
   const votes = state.votesByMatch[matchId] || [];
-  const confirmedIds = new Set(votes.filter((v) => v.response === "VOY").map((v) => v.id));
+  // Igual que en renderDashboard: un voto "Voy" de un jugador ya eliminado
+  // definitivamente queda huérfano, lo ignoramos acá también.
+  const confirmedIds = new Set(votes.filter((v) => v.response === "VOY" && state.playersById[v.id]).map((v) => v.id));
   const confirmed = votes
-    .filter((v) => v.response === "VOY")
+    .filter((v) => v.response === "VOY" && state.playersById[v.id])
     .map((v) => ({ id: v.id, label: "✓ " + displayName(state.playersById[v.id]) }));
   const rest = state.players
     .filter((p) => p.active !== false && !confirmedIds.has(p.id))
