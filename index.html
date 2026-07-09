@@ -3,1436 +3,2278 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-<title>AS13 — Gestión del local</title>
+<title>Trébol FC</title>
 
+<!-- PWA: instalable en la pantalla de inicio -->
 <link rel="manifest" href="/manifest.json" />
-<meta name="theme-color" content="#162247" />
+<meta name="theme-color" content="#0b6e2c" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="AS13" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Trébol FC" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://cdn.tailwindcss.com" />
+<!-- Solo pedimos los pesos de fuente que realmente usamos (antes pedíamos
+     8 variantes, ahora 4) — cada peso de más es un archivo extra que hay
+     que descargar antes de que se vea bien la app. -->
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
 
 <script>
-  window.__twCfg = {
+  // Guardamos la configuración en una variable propia (no en `tailwind.*`,
+  // que todavía no existe) para no bloquear el HTML mientras se descarga
+  // Tailwind — se la pasamos recién cuando el script de abajo termina de
+  // cargar (ver el atributo onload).
+  window.__tailwindConfig = {
     theme: {
       extend: {
         colors: {
-          "as-navy":   "#162247",
-          "as-navy2":  "#1E2D5A",
-          "as-orange": "#E8650A",
-          "as-orange2":"#FF7A1A",
+          "club-green": "#0b6e2c",
+          "club-green-light": "#0f8f3a",
+          "club-dark": "#0a1f14",
+          "club-red": "#df2b32",
         },
         fontFamily: {
-          sans:    ["Inter", "system-ui", "sans-serif"],
+          sans: ["Poppins", "system-ui", "sans-serif"],
           display: ["Oswald", "system-ui", "sans-serif"],
         },
       },
     },
   };
 </script>
-<script defer src="https://cdn.tailwindcss.com" onload="tailwind.config = window.__twCfg"></script>
+<script defer src="https://cdn.tailwindcss.com" onload="tailwind.config = window.__tailwindConfig"></script>
 
 <style>
-  body { background: #f5f4f0; font-family: 'Inter', system-ui, sans-serif; }
-  .font-display { font-family: 'Oswald', system-ui, sans-serif; letter-spacing: .02em; }
-  .btn { transition: opacity .15s, transform .15s; }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
-  .btn:active:not(:disabled) { transform: scale(.97); }
-
-  /* Badge de nivel */
-  .badge-gold   { background:#FEF3C7; color:#92400E; }
-  .badge-silver { background:#E5E7EB; color:#374151; }
-  .badge-bronze { background:#FDE8D8; color:#7C2D12; }
-  .badge-none   { background:#F3F4F6; color:#6B7280; }
-
-  /* Barra de progreso */
-  .bar-wrap { height:6px; background:#E5E7EB; border-radius:99px; overflow:hidden; margin-top:5px; }
-  .bar-fill { height:100%; border-radius:99px; transition: width .4s; }
-
-  /* Splash */
-  #boot-splash { min-height:70vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; color:#9ca3af; }
-  #boot-splash .logo-txt { font-family:'Oswald',sans-serif; font-size:2.5rem; font-weight:700; color:#162247; }
-  @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
-  #boot-splash .dot { animation:pulse 1.4s ease-in-out infinite; }
-
-  /* Nav badge */
-  .nav-dot { width:7px; height:7px; background:#E8650A; border-radius:50%; position:absolute; top:4px; right:8px; }
-
-  /* Card hover */
-  .card-hover { transition: box-shadow .15s; }
-  .card-hover:hover { box-shadow: 0 4px 16px -4px rgba(22,34,71,.15); }
-
-  /* Animación entrada */
-  @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-  .fade-up { animation: fadeUp .25s ease both; }
-
-  /* Stars */
-  .star-on  { color:#F59E0B; }
-  .star-off { color:#D1D5DB; }
-
-  /* Modal overlay */
-  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:1rem; }
-  .modal-box { background:#fff; border-radius:16px; padding:1.5rem; width:100%; max-width:420px; max-height:90vh; overflow-y:auto; }
-
-  /* Toast */
-  #toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#162247; color:#fff; padding:10px 20px; border-radius:99px; font-size:.875rem; opacity:0; transition:opacity .3s; pointer-events:none; z-index:100; white-space:nowrap; }
-  #toast.show { opacity:1; }
-
-  input, select, textarea {
-    border: 1px solid #D1D5DB;
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: .875rem;
-    width: 100%;
-    outline: none;
-    font-family: inherit;
-    background: #fff;
-    transition: border-color .15s;
+  body {
+    background-color: #f5f5f4;
+    background-image: radial-gradient(circle at top, rgba(11,110,44,0.07), transparent 55%);
+    background-attachment: fixed;
+    font-family: 'Poppins', system-ui, sans-serif;
   }
-  input:focus, select:focus, textarea:focus { border-color: #E8650A; box-shadow: 0 0 0 3px rgba(232,101,10,.12); }
-  label { font-size: .8rem; font-weight:500; color:#374151; display:block; margin-bottom:4px; }
+  .font-display { font-family: 'Oswald', system-ui, sans-serif; letter-spacing: .02em; }
+  .btn { transition: opacity .15s ease, transform .15s ease; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .card-lift { transition: transform .15s ease, box-shadow .15s ease; }
+  .card-lift:hover { transform: translateY(-2px); box-shadow: 0 8px 20px -6px rgba(10,31,20,0.15); }
+  .eyebrow { font-family: 'Oswald', system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .rank-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.5rem; height: 1.5rem; border-radius: 9999px;
+    font-size: .7rem; font-weight: 700; flex-shrink: 0;
+  }
+  /* Cinta de capitán: una bandita (no un círculo) con una "C", como la que
+     se usa en la manga de la camiseta — en vez del emoji de medalla. */
+  .captain-armband {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.2rem; height: 1rem; padding: 0 3px; border-radius: 2px;
+    background: #1a1a1a; color: #fff; font-size: .62rem; font-weight: 800;
+    line-height: 1; box-shadow: inset 0 0 0 1.5px #d4af37; flex-shrink: 0;
+    vertical-align: middle;
+  }
+  /* Insignia de DT: mismo tamaño/forma que la del capitán, pero en otro
+     color para distinguirlos a simple vista (azul club en vez de negro). */
+  .dt-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.2rem; height: 1rem; padding: 0 3px; border-radius: 2px;
+    background: #1d4ed8; color: #fff; font-size: .58rem; font-weight: 800;
+    line-height: 1; flex-shrink: 0; vertical-align: middle;
+  }
+
+  /* Pantalla de carga inicial, en CSS puro (nada de Tailwind) — así se ve
+     apenas se abre la app, sin esperar a que bajen ni Tailwind ni las
+     tipografías ni Firebase. En cuanto la app arranca de verdad, este
+     bloque se reemplaza solo (ver el primer renderNavbar()/route()). */
+  #boot-splash {
+    min-height: 70vh; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; color: #9ca3af; font-family: system-ui, sans-serif;
+  }
+  #boot-splash img { width: 56px; height: 56px; border-radius: 9999px; animation: boot-pulse 1.4s ease-in-out infinite; }
+  @keyframes boot-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+
+  /* Fondo con fotos del equipo, en blanco y negro y bien atenuado para no
+     competir con el contenido — arranca recién unos segundos después de
+     que la app ya está andando (ver startBgSlideshow), para no sumarle
+     nada al tiempo de carga inicial. */
+  #bg-slideshow { position: fixed; inset: 0; z-index: -2; overflow: hidden; background: #e7e7e5; }
+  #bg-slideshow img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity 2.5s ease;
+  }
+  #bg-slideshow img.active { opacity: 1; }
+  #bg-scrim { position: fixed; inset: 0; z-index: -1; background: rgba(245,245,244,.85); }
+  @media (prefers-reduced-motion: reduce) {
+    #bg-slideshow img { transition: none; }
+  }
 </style>
 </head>
 <body class="min-h-screen">
+  <div id="bg-slideshow" aria-hidden="true"></div>
+  <div id="bg-scrim" aria-hidden="true"></div>
+  <div id="navbar"></div>
+  <main id="app" class="mx-auto max-w-2xl space-y-6 px-4 py-6">
+    <div id="boot-splash"><img src="/icons/icon-192.png" alt="" /><p>Cargando…</p></div>
+  </main>
+  <div id="toast" class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4"></div>
 
-<!-- ── TOAST ── -->
-<div id="toast"></div>
+<script type="module" async>
+/* =========================================================================
+   Trébol FC — app de un solo archivo (HTML + CSS + JS), sin servidor
+   propio: los datos viven en Firebase Firestore y el hosting es estático
+   (Vercel/GitHub Pages/lo que sea). Para actualizar la app en el futuro,
+   alcanza con reemplazar este archivo.
 
-<!-- ── CONTENIDO PRINCIPAL ── -->
-<div id="app">
-  <div id="boot-splash">
-    <span class="logo-txt">AS13</span>
-    <span class="dot" style="font-size:.85rem;color:#6B7280;">Cargando…</span>
-  </div>
-</div>
+   No hay contraseña por jugador (se elige el nombre de una lista, como
+   antes). El acceso de administrador es un PIN compartido, verificado por
+   las reglas de seguridad de Firestore (ver firestore.rules) — el PIN
+   nunca se guarda ni se expone en este archivo.
+   ========================================================================= */
 
-<!-- ── NAV INFERIOR ── -->
-<nav id="bottom-nav" class="fixed bottom-0 left-0 right-0 bg-as-navy border-t border-as-navy2 z-40 hidden">
-  <div class="flex">
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px] relative" data-view="inicio" onclick="route('inicio')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
-      Inicio
-    </button>
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px] relative" data-view="ranking" onclick="route('ranking')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-      Ranking
-    </button>
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px] relative" data-view="resenas" onclick="route('resenas')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
-      Reseñas
-    </button>
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px] relative" data-view="comentarios" onclick="route('comentarios')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-      Comentarios
-    </button>
-  </div>
-</nav>
-
-<!-- ── ADMIN NAV INFERIOR ── -->
-<nav id="admin-nav" class="fixed bottom-0 left-0 right-0 bg-as-navy border-t border-as-navy2 z-40 hidden">
-  <div class="flex">
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px]" data-view="admin-dashboard" onclick="route('admin-dashboard')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>
-      Panel
-    </button>
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px]" data-view="admin-empleados" onclick="route('admin-empleados')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-      Empleados
-    </button>
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px]" data-view="admin-evaluar" onclick="route('admin-evaluar')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-      Evaluar
-    </button>
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px]" data-view="admin-limpieza" onclick="route('admin-limpieza')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
-      Limpieza
-    </button>
-    <button class="nav-btn flex-1 flex flex-col items-center gap-1 py-2 text-white/50 text-[10px]" data-view="admin-resenas" onclick="route('admin-resenas')">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
-      Reseñas
-    </button>
-  </div>
-</nav>
-
-<script type="module">
-import { initializeApp }   from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
 import {
-  getFirestore, collection, doc, getDoc, getDocs, setDoc,
-  addDoc, updateDoc, deleteDoc, onSnapshot, query, where,
-  orderBy, serverTimestamp, writeBatch, limit,
+  getFirestore, collection, collectionGroup, doc, getDoc, getDocs, setDoc,
+  addDoc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy,
+  serverTimestamp, writeBatch,
 } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
 import {
-  getAuth, signInAnonymously, onAuthStateChanged, signOut,
+  getAuth, signInAnonymously, onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 
-// ── FIREBASE CONFIG ──────────────────────────────────────────────────────
+// -------------------------------------------------------------------------
+// CONFIGURACIÓN DE FIREBASE
+// Estos valores NO son secretos (están pensados para ir en el código del
+// cliente); la seguridad real la dan las reglas de Firestore, no que esto
+// esté "escondido". Se completan una sola vez, al crear el proyecto de
+// Firebase — ver README.md.
+// -------------------------------------------------------------------------
 const firebaseConfig = {
-  apiKey:            "AIzaSyCPQVuhxFDLafjcP6aVlOG_tlBmEIlyFZ8",
-  authDomain:        "objetivosas13.firebaseapp.com",
-  projectId:         "objetivosas13",
-  storageBucket:     "objetivosas13.firebasestorage.app",
-  messagingSenderId: "589275226120",
-  appId:             "1:589275226120:web:0dba85b76a3a5c5840b1bd",
+  apiKey: "AIzaSyB6C0ZgLExepMTC4583TSPpzmemgRUB7qc",
+  authDomain: "trebol-fc.firebaseapp.com",
+  projectId: "trebol-fc",
+  storageBucket: "trebol-fc.firebasestorage.app",
+  messagingSenderId: "942872703021",
+  appId: "1:942872703021:web:6cde90435253e7873c48a4",
 };
 
-const app  = initializeApp(firebaseConfig);
-const db   = getFirestore(app);
-const auth = getAuth(app);
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+const auth = getAuth(firebaseApp);
 
-// ── HELPERS ──────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c =>
-    ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+// Nombre del torneo actual, solo para mostrarlo en la pantalla de
+// Estadísticas junto a la tabla de posiciones. Cuando cambie el torneo,
+// actualizá este texto Y el número de torneo en api/standings.js (son dos
+// lugares separados porque uno vive en el navegador y el otro en el
+// servidor) — ver README.md.
+const TORNEO_NOMBRE = "Copa de Oro B4";
+
+// -------------------------------------------------------------------------
+// Utilidades
+// -------------------------------------------------------------------------
+const PLAYER_KEY = "trebol_player_id";
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
 }
 
-function toast(msg, dur = 2500) {
-  const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), dur);
+function displayName(p) {
+  if (!p) return "?";
+  return escapeHtml(p.nickname || p.name || "?");
 }
 
-// Metas de reseñas por fuente
-const METAS = {
-  google:      4.6,
-  pedidosya_h: 4.7,
-  pedidosya_c: 4.7,
-  salon:       4.8,
-};
-
-function formatFecha(fecha) {
-  if (!fecha) return "";
-  const [y, m, d] = fecha.split("-");
-  const meses = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-  return `${parseInt(d)} ${meses[parseInt(m)-1]}`;
+// Igual que displayName, pero sin escapar HTML: para armar textos planos
+// (por ejemplo, el mensaje de "Compartir por WhatsApp"), no para insertar
+// en el DOM.
+function rawDisplayName(p) {
+  if (!p) return "?";
+  return p.nickname || p.name || "?";
 }
 
-function mesActual() {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;
+// Prefijo con la cinta de capitán (una "C"), para mostrar junto al nombre
+// en pantallas donde tiene sentido (plantel, quién sos, confirmados).
+function captainBadge() {
+  return `<span class="captain-armband" title="Capitán">C</span>`;
+}
+// Insignia de DT (cuerpo técnico) — mismo lugar que la del capitán, pero en
+// azul para distinguirla a simple vista. A diferencia del capitán, puede
+// haber más de un DT a la vez (por ejemplo, DT + ayudante de campo).
+function dtBadge() {
+  return `<span class="dt-badge" title="Director Técnico">DT</span>`;
+}
+function displayNameWithCaptain(p) {
+  if (!p) return "?";
+  const badges = [];
+  if (p.isCaptain) badges.push(captainBadge());
+  if (p.isDT) badges.push(dtBadge());
+  return (badges.length ? badges.join(" ") + " " : "") + displayName(p);
 }
 
-function mesLabel(ym) {
-  if (!ym) return "";
-  const [y, m] = ym.split("-");
-  const nombres = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
-                   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-  return `${nombres[parseInt(m)-1]} ${y}`;
+function pad(n) { return String(n).padStart(2, "0"); }
+
+// Circulito de color para el puesto en un ranking (goleadores, figuras,
+// tabla de posiciones, etc.) — oro/plata/bronce para el podio, verde
+// suave para el resto.
+function rankBadge(n) {
+  const styles = {
+    1: "bg-yellow-400 text-yellow-900",
+    2: "bg-gray-300 text-gray-700",
+    3: "bg-amber-600 text-amber-50",
+  };
+  const cls = styles[n] || "bg-club-green/10 text-club-green";
+  return `<span class="rank-badge ${cls}">${n}</span>`;
 }
 
-function nivelBadge(pts) {
-  if (pts >= 80) return `<span class="badge-gold text-xs font-semibold px-2 py-0.5 rounded-full">🥇 Oro</span>`;
-  if (pts >= 60) return `<span class="badge-silver text-xs font-semibold px-2 py-0.5 rounded-full">🥈 Plata</span>`;
-  if (pts >= 40) return `<span class="badge-bronze text-xs font-semibold px-2 py-0.5 rounded-full">🥉 Bronce</span>`;
-  return `<span class="badge-none text-xs font-semibold px-2 py-0.5 rounded-full">En construcción</span>`;
+// Argentina no tiene horario de verano desde 2009: siempre UTC-3.
+function toBAInputValue(jsDate) {
+  const ba = new Date(jsDate.getTime() - 3 * 60 * 60 * 1000);
+  return `${ba.getUTCFullYear()}-${pad(ba.getUTCMonth() + 1)}-${pad(ba.getUTCDate())}T${pad(ba.getUTCHours())}:${pad(ba.getUTCMinutes())}`;
 }
 
-function nivelColor(pts) {
-  if (pts >= 80) return "#F59E0B";
-  if (pts >= 60) return "#9CA3AF";
-  if (pts >= 40) return "#FB923C";
-  return "#E5E7EB";
+function fromBAInputValue(value) {
+  const [datePart, timePart] = value.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, hh + 3, mm, 0));
 }
 
-function starsHtml(val) {
-  let s = "";
-  for (let i = 1; i <= 5; i++)
-    s += `<span class="${i <= Math.round(val) ? "star-on" : "star-off"}">★</span>`;
-  return s;
-}
-
-// ── ESTADO GLOBAL ────────────────────────────────────────────────────────
-let currentUser   = null;
-let isAdmin       = false;
-let empleados     = [];
-let currentView   = "";
-let unsubListeners = [];
-let uid           = null;
-
-function clearSubs() {
-  unsubListeners.forEach(u => u());
-  unsubListeners = [];
-}
-
-// ── AUTH ─────────────────────────────────────────────────────────────────
-onAuthStateChanged(auth, async user => {
-  if (!user) {
-    await signInAnonymously(auth).catch(e => console.error(e));
-    return;
-  }
-  currentUser = user;
-  uid = user.uid;
-
-  // Verificar si es admin (tiene sesión admin activa en Firestore)
-  try {
-    const sesSnap = await getDoc(doc(db, "adminSessions", uid));
-    isAdmin = sesSnap.exists();
-  } catch(e) {
-    isAdmin = false;
-  }
-
-  if (isAdmin) {
-    showAdminNav();
-  } else {
-    showPublicNav();
-  }
-  await loadEmpleados();
-  const hash = location.hash.slice(1);
-  route(hash || (isAdmin ? "admin-dashboard" : "inicio"));
+const fmtShort = new Intl.DateTimeFormat("es-AR", {
+  weekday: "short", day: "numeric", month: "short",
+  hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires",
+});
+const fmtLong = new Intl.DateTimeFormat("es-AR", {
+  weekday: "long", day: "numeric", month: "long", timeZone: "America/Argentina/Buenos_Aires",
 });
 
-function showAdminNav() {
-  document.getElementById("bottom-nav").classList.add("hidden");
-  document.getElementById("admin-nav").classList.remove("hidden");
-}
-function showPublicNav() {
-  document.getElementById("admin-nav").classList.add("hidden");
-  document.getElementById("bottom-nav").classList.remove("hidden");
+function tsToDate(ts) {
+  return ts && typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
 }
 
-async function loadEmpleados() {
+function showToast(message, kind) {
+  const el = document.createElement("div");
+  el.className =
+    "pointer-events-auto rounded-lg px-4 py-2 text-sm font-medium text-white shadow-lg " +
+    (kind === "error" ? "bg-red-600" : "bg-club-green");
+  el.textContent = message;
+  document.getElementById("toast").appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+async function runAction(fn) {
   try {
-    const snap = await getDocs(query(collection(db,"empleados"), orderBy("nombre")));
-    empleados = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-                         .filter(e => e.activo !== false);
-  } catch(e) {
-    empleados = [];
+    await fn();
+  } catch (err) {
+    console.error(err);
+    const msg = err && err.code === "permission-denied"
+      ? "No tenés permiso para hacer esto (¿se cerró tu sesión de admin?)."
+      : (err && err.message) || "Ocurrió un error.";
+    showToast(msg, "error");
   }
 }
 
-// ── ROUTER ───────────────────────────────────────────────────────────────
-window.route = function(view) {
-  clearSubs();
-  currentView = view;
-  location.hash = view;
-  updateNavActive(view);
-  const app = document.getElementById("app");
-  app.innerHTML = "";
-
-  const pub  = ["inicio","ranking","resenas","comentarios"];
-  const adm  = ["admin-dashboard","admin-empleados","admin-evaluar",
-                 "admin-limpieza","admin-resenas","admin-login"];
-
-  if (adm.includes(view) && !isAdmin && view !== "admin-login") {
-    renderAdminLogin(); return;
-  }
-
-  switch(view) {
-    case "inicio":           renderInicio(); break;
-    case "ranking":          renderRanking(); break;
-    case "resenas":          renderResenas(); break;
-    case "comentarios":      renderComentarios(); break;
-    case "admin-login":      renderAdminLogin(); break;
-    case "admin-dashboard":  renderAdminDashboard(); break;
-    case "admin-empleados":  renderAdminEmpleados(); break;
-    case "admin-evaluar":    renderAdminEvaluar(); break;
-    case "admin-limpieza":   renderAdminLimpieza(); break;
-    case "admin-resenas":    renderAdminResenas(); break;
-    default:                 renderInicio();
-  }
+// -------------------------------------------------------------------------
+// Estado global en memoria, alimentado por listeners en vivo de Firestore.
+// -------------------------------------------------------------------------
+const state = {
+  ready: false,
+  uid: null,
+  isAdmin: false,
+  playerId: localStorage.getItem(PLAYER_KEY) || null,
+  players: [],
+  playersById: {},
+  matches: [],
+  nextMatch: null,
+  recentMatches: [],
+  votesByMatch: {}, // matchId -> array of vote docs {id(=playerId), response, ...}
+  detailMatchId: null,
+  detailGoals: [],
+  detailCards: [],
+  detailAttendance: [], // asistencia real cargada por un admin para el partido que se está viendo
+  detailMotmVotes: [], // votos de figura del partido del partido que se está viendo (admin)
+  detailComments: [], // comentarios del partido que se está viendo (admin, para poder moderar)
+  detailPayments: [], // cuánto pagó cada uno en el partido que se está viendo (solo admin)
+  detailGuests: [], // invitados sueltos de ESTE partido puntual (no van al plantel), solo admin
+  lastPlayedAttendance: [], // asistencia del último partido jugado (para que un jugador pueda votar)
+  lastPlayedMotmVotes: [], // mis votos de figura del último partido jugado (vista jugador)
+  nextMatchComments: [], // muro de comentarios del próximo partido (vista jugador)
+  lastPlayedComments: [], // muro de comentarios del último partido jugado (vista jugador)
+  stats: null, // {goleadores, asistencias, tarjetas, porJugador}
+  statsLoading: false,
+  statsError: null,
+  statsTab: "torneo", // "torneo" | "historicas" — qué mitad de Estadísticas se ve
+  standings: null, // {rows, fetchedAt} — tabla de posiciones de la liga
+  standingsRefreshing: false,
 };
 
-function updateNavActive(view) {
-  document.querySelectorAll(".nav-btn").forEach(b => {
-    const active = b.dataset.view === view;
-    b.classList.toggle("text-as-orange", active);
-    b.classList.toggle("text-white/50", !active);
+function currentPlayer() {
+  return state.playersById[state.playerId] || null;
+}
+
+// -------------------------------------------------------------------------
+// Router muy simple basado en location.hash
+// -------------------------------------------------------------------------
+function navigate(hash) {
+  if (location.hash === hash) { route(); } else { location.hash = hash; }
+}
+window.navigate = navigate;
+
+window.addEventListener("hashchange", route);
+
+function route() {
+  const hash = location.hash || "#/";
+  render(hash);
+}
+
+// -------------------------------------------------------------------------
+// Listeners en vivo (se arrancan una vez que hay sesión anónima)
+// -------------------------------------------------------------------------
+function startListeners() {
+  onSnapshot(doc(db, "config", "standings"), (snap) => {
+    state.standings = snap.exists() ? snap.data() : null;
+    route();
+  }, (err) => console.error("standings listener:", err));
+
+  onSnapshot(query(collection(db, "players"), orderBy("name")), (snap) => {
+    state.players = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    state.playersById = Object.fromEntries(state.players.map((p) => [p.id, p]));
+    route();
+  }, (err) => console.error("players listener:", err));
+
+  // Traemos todos los partidos ordenados por fecha (son pocos por año) y
+  // derivamos "próximo" / "recientes" en el cliente: así evitamos tener que
+  // crear índices compuestos en Firestore.
+  onSnapshot(query(collection(db, "matches"), orderBy("date", "desc")), (snap) => {
+    state.matches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const programados = state.matches
+      .filter((m) => m.status === "PROGRAMADO")
+      .sort((a, b) => tsToDate(a.date) - tsToDate(b.date));
+    state.nextMatch = programados[0] || null;
+    state.recentMatches = state.matches
+      .filter((m) => m.status === "JUGADO" || m.status === "CANCELADO")
+      .slice(0, 5);
+    const lastPlayed = state.matches.find((m) => m.status === "JUGADO") || null;
+
+    // (Re)conectar los listeners de votos del próximo partido, y de
+    // asistencia/votos de figura del último partido jugado (para que un
+    // jugador pueda votar la figura desde la pantalla principal).
+    connectVotesListener(state.nextMatch ? state.nextMatch.id : null);
+    connectLastPlayedListeners(lastPlayed ? lastPlayed.id : null);
+    connectNextMatchCommentsListener(state.nextMatch ? state.nextMatch.id : null);
+    connectLastPlayedCommentsListener(lastPlayed ? lastPlayed.id : null);
+    route();
+  }, (err) => console.error("matches listener:", err));
+}
+
+let unsubVotes = null;
+let votesListenerMatchId = null;
+function connectVotesListener(matchId) {
+  if (matchId === votesListenerMatchId) return;
+  votesListenerMatchId = matchId;
+  if (unsubVotes) { unsubVotes(); unsubVotes = null; }
+  if (!matchId) return;
+  unsubVotes = onSnapshot(collection(db, "matches", matchId, "votes"), (snap) => {
+    state.votesByMatch[matchId] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("votes listener:", err));
+}
+
+let unsubLastPlayed = { attendance: null, motmVotes: null };
+let lastPlayedListenerMatchId = null;
+function connectLastPlayedListeners(matchId) {
+  if (matchId === lastPlayedListenerMatchId) return;
+  lastPlayedListenerMatchId = matchId;
+  if (unsubLastPlayed.attendance) unsubLastPlayed.attendance();
+  if (unsubLastPlayed.motmVotes) unsubLastPlayed.motmVotes();
+  state.lastPlayedAttendance = [];
+  state.lastPlayedMotmVotes = [];
+  if (!matchId) return;
+  unsubLastPlayed.attendance = onSnapshot(collection(db, "matches", matchId, "attendance"), (snap) => {
+    state.lastPlayedAttendance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("lastPlayed attendance listener:", err));
+  unsubLastPlayed.motmVotes = onSnapshot(collection(db, "matches", matchId, "motmVotes"), (snap) => {
+    state.lastPlayedMotmVotes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("lastPlayed motmVotes listener:", err));
+}
+
+// Fábrica de listeners de comentarios: se usa 3 veces (próximo partido,
+// último partido jugado, y el partido que esté mirando un admin en el
+// detalle), cada una guardando en un campo de state distinto, para poder
+// tener hasta 3 muros de comentarios "en vivo" a la vez sin repetir código.
+function makeCommentsListener(stateKey) {
+  let unsub = null;
+  let listenerMatchId = null;
+  return function connect(matchId) {
+    if (matchId === listenerMatchId) return;
+    listenerMatchId = matchId;
+    if (unsub) { unsub(); unsub = null; }
+    state[stateKey] = [];
+    if (!matchId) { route(); return; }
+    unsub = onSnapshot(
+      query(collection(db, "matches", matchId, "comments"), orderBy("createdAt", "asc")),
+      (snap) => {
+        state[stateKey] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        route();
+      },
+      (err) => console.error("comments listener:", err)
+    );
+  };
+}
+const connectNextMatchCommentsListener = makeCommentsListener("nextMatchComments");
+const connectLastPlayedCommentsListener = makeCommentsListener("lastPlayedComments");
+const connectDetailCommentsListener = makeCommentsListener("detailComments");
+
+let unsubDetail = { goals: null, cards: null, attendance: null, motmVotes: null, payments: null, guests: null };
+function connectDetailListeners(matchId) {
+  if (state.detailMatchId === matchId) return;
+  state.detailMatchId = matchId;
+  if (unsubDetail.goals) unsubDetail.goals();
+  if (unsubDetail.cards) unsubDetail.cards();
+  if (unsubDetail.attendance) unsubDetail.attendance();
+  if (unsubDetail.motmVotes) unsubDetail.motmVotes();
+  if (unsubDetail.payments) unsubDetail.payments();
+  if (unsubDetail.guests) unsubDetail.guests();
+  connectDetailCommentsListener(matchId);
+  if (!matchId) return;
+  unsubDetail.goals = onSnapshot(collection(db, "matches", matchId, "goals"), (snap) => {
+    state.detailGoals = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+    route();
+  }, (err) => console.error("goals listener:", err));
+  unsubDetail.cards = onSnapshot(collection(db, "matches", matchId, "cards"), (snap) => {
+    state.detailCards = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+    route();
+  }, (err) => console.error("cards listener:", err));
+  unsubDetail.attendance = onSnapshot(collection(db, "matches", matchId, "attendance"), (snap) => {
+    state.detailAttendance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("attendance listener:", err));
+  unsubDetail.motmVotes = onSnapshot(collection(db, "matches", matchId, "motmVotes"), (snap) => {
+    state.detailMotmVotes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("motmVotes listener:", err));
+  // Solo un admin puede leer esta subcolección (ver firestore.rules) — como
+  // esta pantalla de detalle es admin-only, siempre va a poder.
+  unsubDetail.payments = onSnapshot(collection(db, "matches", matchId, "payments"), (snap) => {
+    state.detailPayments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("payments listener:", err));
+  // Invitados sueltos de este partido puntual (chicos que vienen a dar una
+  // mano un domingo): viven en su propia subcolección, separada de
+  // "players", para no tocar el plantel ni las estadísticas históricas.
+  // Solo un admin puede leerla (ver firestore.rules).
+  unsubDetail.guests = onSnapshot(collection(db, "matches", matchId, "guests"), (snap) => {
+    state.detailGuests = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    route();
+  }, (err) => console.error("guests listener:", err));
+}
+
+async function loadStats() {
+  state.statsLoading = true;
+  state.statsError = null;
+  route();
+  // Se piden las 4 por separado (no con Promise.all) para poder decir
+  // puntualmente cuál de las 4 falló, en vez de un error genérico.
+  const queries = [
+    ["goals", collectionGroup(db, "goals")],
+    ["cards", collectionGroup(db, "cards")],
+    ["votes", collectionGroup(db, "votes")],
+    ["attendance", collectionGroup(db, "attendance")],
+  ];
+  const results = await Promise.allSettled(queries.map(([, q]) => getDocs(q)));
+  const failed = results
+    .map((r, i) => (r.status === "rejected" ? { name: queries[i][0], err: r.reason } : null))
+    .filter(Boolean);
+  if (failed.length > 0) {
+    failed.forEach((f) => console.error(`loadStats (${f.name}):`, f.err));
+    state.statsError = failed.map((f) => `"${f.name}": ${(f.err && f.err.message) || "error desconocido"}`).join(" / ");
+    state.statsLoading = false;
+    route();
+    return;
+  }
+  const [goalsSnap, cardsSnap, votesSnap, attendanceSnap] = results.map((r) => r.value);
+  const goleadoresMap = new Map();
+  const asistenciasMap = new Map();
+  goalsSnap.forEach((d) => {
+    const g = d.data();
+    const scorer = goleadoresMap.get(g.scorerId) || { id: g.scorerId, count: 0 };
+    scorer.count += 1;
+    goleadoresMap.set(g.scorerId, scorer);
+    if (g.assistId) {
+      const assist = asistenciasMap.get(g.assistId) || { id: g.assistId, count: 0 };
+      assist.count += 1;
+      asistenciasMap.set(g.assistId, assist);
+    }
+  });
+  const tarjetasMap = new Map();
+  cardsSnap.forEach((d) => {
+    const c = d.data();
+    const entry = tarjetasMap.get(c.playerId) || { id: c.playerId, amarillas: 0, rojas: 0 };
+    if (c.type === "AMARILLA") entry.amarillas += 1; else entry.rojas += 1;
+    tarjetasMap.set(c.playerId, entry);
+  });
+  // "Presencias": por cada partido y jugador, preferimos la asistencia real
+  // que carga un admin (más precisa); para los jugadores que en ese partido
+  // puntual todavía no se tocaron, usamos como aproximación si habían
+  // confirmado "Voy". Es por-jugador (no por-partido entero) para que
+  // marcar a uno no le haga perder el dato aproximado a los demás.
+  const matchAttendance = new Map(); // matchId -> Map(playerId -> present bool)
+  attendanceSnap.forEach((d) => {
+    const matchId = d.ref.path.split("/")[1];
+    if (!matchAttendance.has(matchId)) matchAttendance.set(matchId, new Map());
+    matchAttendance.get(matchId).set(d.id, !!d.data().present);
+  });
+  const voyByMatch = new Map(); // matchId -> Set(playerId)
+  const matchIds = new Set(matchAttendance.keys());
+  votesSnap.forEach((d) => {
+    const v = d.data();
+    const matchId = d.ref.path.split("/")[1];
+    matchIds.add(matchId);
+    if (v.response !== "VOY") return;
+    if (!voyByMatch.has(matchId)) voyByMatch.set(matchId, new Set());
+    voyByMatch.get(matchId).add(d.id);
+  });
+  const presenciasMap = new Map();
+  matchIds.forEach((matchId) => {
+    const explicit = matchAttendance.get(matchId);
+    const voy = voyByMatch.get(matchId);
+    state.players.forEach((p) => {
+      const present = explicit && explicit.has(p.id) ? explicit.get(p.id) : !!(voy && voy.has(p.id));
+      if (present) presenciasMap.set(p.id, (presenciasMap.get(p.id) || 0) + 1);
+    });
+  });
+  // Figura del partido: vive como campo en el propio documento del partido
+  // (match.motmPlayerId), que ya está siempre en memoria por el listener en
+  // vivo — no hace falta pedirle nada más a Firestore para este dato.
+  const figurasMap = new Map(motmRanking().map((f) => [f.id, f.count]));
+  // Lavado del bolso: mismo mecanismo (campo en el propio documento del
+  // partido), ya en memoria por el listener en vivo.
+  const bolsosMap = new Map(bolsoRanking().map((b) => [b.id, b.count]));
+  // % de asistencia: sobre el total de partidos que jugó el equipo (no solo
+  // los que tienen asistencia/votos cargados), para que sea un número
+  // comparable entre jugadores independientemente de cuándo se sumaron al
+  // plantel. Si el equipo todavía no jugó ningún partido no hay % posible.
+  const totalJugados = state.matches.filter((m) => m.status === "JUGADO").length;
+  // Tabla completa: una fila por CADA jugador (incluso sin ningún dato
+  // todavía), para que se pueda comparar a todo el plantel de un vistazo.
+  const porJugador = state.players.map((p) => {
+    const presencias = presenciasMap.get(p.id) || 0;
+    return {
+      id: p.id,
+      presencias,
+      totalJugados,
+      presenciaPct: totalJugados > 0 ? Math.round((presencias / totalJugados) * 100) : null,
+      figuras: figurasMap.get(p.id) || 0,
+      bolsos: bolsosMap.get(p.id) || 0,
+      goles: goleadoresMap.get(p.id)?.count || 0,
+      asistencias: asistenciasMap.get(p.id)?.count || 0,
+      amarillas: tarjetasMap.get(p.id)?.amarillas || 0,
+      rojas: tarjetasMap.get(p.id)?.rojas || 0,
+    };
+  }).sort((a, b) => displayName(state.playersById[a.id]).localeCompare(displayName(state.playersById[b.id]), "es"));
+  state.stats = {
+    goleadores: [...goleadoresMap.values()].sort((a, b) => b.count - a.count),
+    asistencias: [...asistenciasMap.values()].sort((a, b) => b.count - a.count),
+    tarjetas: [...tarjetasMap.values()].sort((a, b) => (b.amarillas + b.rojas) - (a.amarillas + a.rojas)),
+    porJugador,
+  };
+  state.statsLoading = false;
+  route();
+}
+
+window.retryLoadStats = function () {
+  state.statsError = null;
+  loadStats();
+};
+
+// -------------------------------------------------------------------------
+// Arranque: autenticación anónima (necesaria para poder votar y, si
+// corresponde, para las reglas de admin) y chequeo de sesión de admin.
+// -------------------------------------------------------------------------
+onAuthStateChanged(auth, async (user) => {
+  if (!user) { await signInAnonymously(auth).catch((e) => console.error(e)); return; }
+  state.uid = user.uid;
+  try {
+    const sessionSnap = await getDoc(doc(db, "adminSessions", user.uid));
+    state.isAdmin = sessionSnap.exists();
+  } catch (e) {
+    state.isAdmin = false;
+  }
+  state.ready = true;
+  startListeners();
+  route();
+});
+
+// =========================================================================
+// ACCIONES (equivalentes a los "server actions" de la versión anterior)
+// =========================================================================
+
+window.selectPlayer = function (playerId) {
+  state.playerId = playerId;
+  localStorage.setItem(PLAYER_KEY, playerId);
+  navigate("#/");
+};
+
+window.changePlayer = function () {
+  state.playerId = null;
+  localStorage.removeItem(PLAYER_KEY);
+  navigate("#/quien-sos");
+};
+
+window.vote = function (matchId, response) {
+  runAction(async () => {
+    const player = currentPlayer();
+    if (!player) throw new Error("Elegí tu nombre primero.");
+    await setDoc(doc(db, "matches", matchId, "votes", player.id), {
+      response, respondedAt: serverTimestamp(),
+    });
+    showToast("¡Voto guardado!");
+  });
+};
+
+// Arma un texto prolijo con la lista de confirmados del próximo partido y
+// abre WhatsApp (la app si está instalada, o web.whatsapp.com si no) con
+// ese texto ya cargado, listo para elegir el grupo y mandarlo. No lo
+// mandamos nosotros: el usuario elige el chat y aprieta enviar él mismo,
+// como cualquier botón de "compartir".
+window.shareConfirmados = function () {
+  const match = state.nextMatch;
+  if (!match) return;
+  const votes = state.votesByMatch[match.id] || [];
+  const confirmados = votes
+    .filter((v) => v.response === "VOY")
+    .map((v) => rawDisplayName(state.playersById[v.id]))
+    .filter((n) => n && n !== "?");
+
+  let text = `⚽ Trébol FC vs ${match.opponent}\n${fmtLong.format(tsToDate(match.date))}`;
+  if (match.sede) text += ` · ${match.sede}`;
+  text += "\n\n";
+  if (confirmados.length === 0) {
+    text += "Todavía no confirmó nadie. ¡Metan \"Voy\" en la app! 👇";
+  } else {
+    text += `✅ Confirmados (${confirmados.length}):\n` + confirmados.map((n, i) => `${i + 1}. ${n}`).join("\n");
+  }
+  text += `\n\n${location.origin}`;
+
+  window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
+};
+
+window.adminLogin = function (pin) {
+  runAction(async () => {
+    if (!pin) throw new Error("Ingresá el PIN.");
+    await setDoc(doc(db, "adminSessions", state.uid), { pin, createdAt: serverTimestamp() });
+    state.isAdmin = true;
+    showToast("¡Listo, entraste como admin!");
+    navigate("#/admin/partido");
+  }).catch(() => {});
+};
+
+window.adminLogout = function () {
+  runAction(async () => {
+    await deleteDoc(doc(db, "adminSessions", state.uid));
+    state.isAdmin = false;
+    navigate("#/");
+  });
+};
+
+window.addPlayer = function (name, nickname, isDT) {
+  runAction(async () => {
+    if (!name || !name.trim()) throw new Error("Falta el nombre.");
+    await addDoc(collection(db, "players"), {
+      name: name.trim(), nickname: nickname && nickname.trim() ? nickname.trim() : null,
+      active: true, isDT: !!isDT, createdAt: serverTimestamp(),
+    });
+    showToast(isDT ? "Cuerpo técnico agregado." : "Jugador agregado.");
+    document.getElementById("new-player-name").value = "";
+    document.getElementById("new-player-nickname").value = "";
+    const dtCheckbox = document.getElementById("new-player-isdt");
+    if (dtCheckbox) dtCheckbox.checked = false;
+  });
+};
+
+// Corregir nombre/apodo de un jugador ya cargado (por ejemplo, un error de
+// tipeo al agregarlo). No hace falta pedir confirmación: es un dato de
+// texto, no algo destructivo como borrar o dar de baja.
+window.editPlayer = function (playerId, name, nickname) {
+  runAction(async () => {
+    if (!name || !name.trim()) throw new Error("Falta el nombre.");
+    await updateDoc(doc(db, "players", playerId), {
+      name: name.trim(), nickname: nickname && nickname.trim() ? nickname.trim() : null,
+    });
+    showToast("Nombre actualizado.");
+  });
+};
+
+window.togglePlayerActive = function (playerId, active) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { active });
+  });
+};
+
+// Borrado permanente (distinto de "dar de baja"): esto sí saca al jugador
+// de la base de datos para siempre, no se puede deshacer. A diferencia de
+// borrar un partido, acá NO se limpia nada de lo viejo que lo referencia
+// (sus goles, tarjetas, presencias, veces que fue figura o se llevó el
+// bolso, comentarios, etc. siguen existiendo en esos partidos pasados) —
+// simplemente, como el documento del jugador ya no existe, esas pantallas
+// van a mostrar "?" en vez de su nombre ahí donde aparecía. El diálogo de
+// confirmación se lo avisa a quien lo borra.
+window.deletePlayerForever = function (playerId) {
+  const p = state.playersById[playerId];
+  const label = p ? (p.nickname || p.name) : "este jugador";
+  if (!confirm(
+    `¿Eliminar definitivamente a ${label}? No se puede deshacer.\n\n` +
+    `Si ya jugó partidos, cargó goles/tarjetas, pagó algo o tiene cualquier ` +
+    `historial, esos datos viejos van a seguir existiendo pero van a mostrar ` +
+    `"?" en vez de su nombre en Estadísticas y en el detalle de esos partidos.\n\n` +
+    `Si en cambio pensás que puede llegar a volver al equipo, mejor usá "Dar de baja".`
+  )) return;
+  runAction(async () => {
+    await deleteDoc(doc(db, "players", playerId));
+    showToast("Jugador eliminado definitivamente.");
+  });
+};
+
+// Solo puede haber un capitán a la vez: al designar uno nuevo, se le
+// quita la insignia a quien la tuviera antes (en el mismo batch).
+window.setCaptain = function (playerId) {
+  runAction(async () => {
+    const batch = writeBatch(db);
+    for (const p of state.players) {
+      if (p.isCaptain && p.id !== playerId) {
+        batch.update(doc(db, "players", p.id), { isCaptain: false });
+      }
+    }
+    batch.update(doc(db, "players", playerId), { isCaptain: true });
+    await batch.commit();
+    showToast("Nuevo capitán designado.");
+  });
+};
+
+window.unsetCaptain = function (playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { isCaptain: false });
+  });
+};
+
+// A diferencia del capitán, puede haber más de un DT a la vez (por ejemplo,
+// DT + ayudante de campo), así que no hace falta quitarle la insignia a nadie
+// más al designar uno nuevo.
+window.setDT = function (playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { isDT: true });
+    showToast("Ahora forma parte del cuerpo técnico.");
+  });
+};
+
+window.unsetDT = function (playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { isDT: false });
+  });
+};
+
+// Se guarda la fecha de nacimiento completa (no solo día y mes) porque de
+// yapa permite mostrar "cumple X años" y no solo "hoy es su cumpleaños".
+// Se arma con 3 <select> de día/mes/año en vez de un <input type="date">:
+// el date picker nativo del celular se porta mal en varios navegadores
+// (Android en particular) al tipear años lejanos como 1994 — con un solo
+// dígito ya da por terminada la carga. Con 3 selects no depende para nada
+// del picker nativo del sistema, así que no puede pasar eso.
+window.setBirthdayPart = function (playerId, container) {
+  const day = container.querySelector('[data-part="day"]').value;
+  const month = container.querySelector('[data-part="month"]').value;
+  const year = container.querySelector('[data-part="year"]').value;
+  if (!day || !month || !year) return; // esperamos a que se elijan los 3
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  runAction(async () => {
+    await updateDoc(doc(db, "players", playerId), { birthday: `${year}-${mm}-${dd}` });
+    showToast("Cumpleaños guardado.");
+  });
+};
+
+window.createOrUpdateMatch = function (matchId, date, opponent, sede) {
+  runAction(async () => {
+    if (!date) throw new Error("Falta la fecha y hora.");
+    if (!opponent || !opponent.trim()) throw new Error("Falta el rival.");
+    const data = {
+      date: fromBAInputValue(date), opponent: opponent.trim(), sede: sede && sede.trim() ? sede.trim() : null,
+    };
+    if (matchId) {
+      await updateDoc(doc(db, "matches", matchId), data);
+    } else {
+      await addDoc(collection(db, "matches"), {
+        ...data, status: "PROGRAMADO", ourScore: null, theirScore: null, createdAt: serverTimestamp(),
+      });
+    }
+    showToast("Partido guardado.");
+  });
+};
+
+window.markPlayed = function (matchId, ourScore, theirScore) {
+  runAction(async () => {
+    if (ourScore === "" || theirScore === "") throw new Error("Cargá los dos resultados.");
+    await updateDoc(doc(db, "matches", matchId), {
+      status: "JUGADO", ourScore: Number(ourScore), theirScore: Number(theirScore),
+    });
+    navigate(`#/admin/partido/${matchId}`);
+  });
+};
+
+window.cancelMatch = function (matchId) {
+  if (!confirm("¿Seguro que querés cancelar este partido?")) return;
+  runAction(async () => {
+    await updateDoc(doc(db, "matches", matchId), { status: "CANCELADO" });
+  });
+};
+
+async function deleteSubcollection(matchId, name) {
+  const snap = await getDocs(collection(db, "matches", matchId, name));
+  const batch = writeBatch(db);
+  snap.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+}
+
+// Firestore NO borra solo las subcolecciones de un documento al borrarlo
+// (quedarían "huérfanas" pero se seguirían contando en Estadísticas, que
+// junta datos de todos los partidos) — por eso hay que borrar acá, a mano,
+// las 6 subcolecciones que puede llegar a tener un partido.
+window.deleteMatch = function (matchId) {
+  if (!confirm("¿Seguro que querés borrar este partido? Se borran también sus goles, tarjetas, asistencia, votos, comentarios, pagos e invitados. No se puede deshacer.")) return;
+  runAction(async () => {
+    await Promise.all([
+      deleteSubcollection(matchId, "votes"),
+      deleteSubcollection(matchId, "goals"),
+      deleteSubcollection(matchId, "cards"),
+      deleteSubcollection(matchId, "attendance"),
+      deleteSubcollection(matchId, "motmVotes"),
+      deleteSubcollection(matchId, "comments"),
+      deleteSubcollection(matchId, "payments"),
+      deleteSubcollection(matchId, "guests"),
+    ]);
+    await deleteDoc(doc(db, "matches", matchId));
+    showToast("Partido borrado.");
+  });
+};
+
+// Herramienta de limpieza para datos que quedaron "sueltos" de partidos que
+// se borraron ANTES de que existiera el borrado-de-subcolecciones de arriba
+// (o por cualquier otro motivo quedaron huérfanos). Sin esto, esos datos
+// viejos se siguen contando en Estadísticas para siempre porque las
+// collection group queries no distinguen si el partido dueño todavía existe.
+window.cleanOrphanedMatchData = function () {
+  if (!confirm('Esto busca asistencia, votos, goles, tarjetas, comentarios, pagos e invitados que hayan quedado de partidos ya borrados (no de los partidos actuales) y los elimina. ¿Continuar?')) return;
+  runAction(async () => {
+    const matchesSnap = await getDocs(collection(db, "matches"));
+    const validIds = new Set(matchesSnap.docs.map((d) => d.id));
+    const subcollections = ["votes", "goals", "cards", "attendance", "motmVotes", "comments", "payments", "guests"];
+    const orphanRefs = [];
+    for (const name of subcollections) {
+      const snap = await getDocs(collectionGroup(db, name));
+      snap.forEach((d) => {
+        const matchId = d.ref.path.split("/")[1];
+        if (!validIds.has(matchId)) orphanRefs.push(d.ref);
+      });
+    }
+    if (orphanRefs.length === 0) {
+      showToast("No se encontró nada suelto: todo lo que hay en Estadísticas es de partidos actuales.");
+      return;
+    }
+    // Firestore no permite más de 500 operaciones por batch.
+    for (let i = 0; i < orphanRefs.length; i += 400) {
+      const batch = writeBatch(db);
+      orphanRefs.slice(i, i + 400).forEach((ref) => batch.delete(ref));
+      await batch.commit();
+    }
+    showToast(`Listo: se borraron ${orphanRefs.length} dato(s) sueltos de partidos ya eliminados.`);
+    state.stats = null;
+    loadStats();
+  });
+};
+
+window.revertMatch = function (matchId) {
+  if (!confirm('Esto borra el resultado, los goles/tarjetas, la asistencia y la figura del partido cargados, y lo vuelve a dejar como "Programado". ¿Seguro?')) return;
+  runAction(async () => {
+    await Promise.all([
+      deleteSubcollection(matchId, "goals"),
+      deleteSubcollection(matchId, "cards"),
+      deleteSubcollection(matchId, "attendance"),
+      deleteSubcollection(matchId, "motmVotes"),
+    ]);
+    await updateDoc(doc(db, "matches", matchId), {
+      status: "PROGRAMADO", ourScore: null, theirScore: null, motmPlayerId: null, motmVotingOpen: false,
+      bolsoPlayerId: null,
+    });
+    navigate("#/admin/partido");
+  });
+};
+
+window.addGoal = function (matchId, scorerId, assistId) {
+  runAction(async () => {
+    if (!scorerId) throw new Error("Falta elegir quién hizo el gol.");
+    if (assistId && assistId === scorerId) throw new Error("El goleador y el asistidor no pueden ser la misma persona.");
+    await addDoc(collection(db, "matches", matchId, "goals"), {
+      scorerId, assistId: assistId || null, createdAt: serverTimestamp(),
+    });
+  });
+};
+
+window.deleteGoal = function (matchId, goalId) {
+  runAction(async () => { await deleteDoc(doc(db, "matches", matchId, "goals", goalId)); });
+};
+
+// "Figura del partido": un campo más en el propio documento del partido
+// (no hace falta una colección aparte), así que ya viaja con el resto de
+// los datos de "matches" que están siempre en memoria. Se puede elegir a
+// mano (esto) o por votación de los jugadores (ver más abajo); elegirla a
+// mano siempre cierra/descarta cualquier votación que estuviera abierta.
+window.setMotm = function (matchId, playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "matches", matchId), { motmPlayerId: playerId || null, motmVotingOpen: false });
+    showToast("Figura del partido guardada.");
+  });
+};
+
+// Votación de figura del partido entre los jugadores que estuvieron en la
+// cancha. Al abrirla, "congelamos" la asistencia actual (la que se ve en
+// pantalla, sea explícita o el aproximado por "Voy") como documentos
+// explícitos: así la lista de quién puede votar no cambia sola después.
+window.openMotmVoting = function (matchId) {
+  runAction(async () => {
+    const attendanceIds = new Set(state.detailAttendance.map((a) => a.id));
+    const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
+    const activePlayers = state.players.filter((p) => p.active !== false);
+    const batch = writeBatch(db);
+    let touched = false;
+    for (const p of activePlayers) {
+      if (!attendanceIds.has(p.id)) {
+        batch.set(doc(db, "matches", matchId, "attendance", p.id), { present: voyIds.has(p.id) });
+        touched = true;
+      }
+    }
+    if (touched) await batch.commit();
+    await updateDoc(doc(db, "matches", matchId), { motmVotingOpen: true, motmPlayerId: null });
+    showToast("Votación de figura del partido abierta.");
+  });
+};
+
+// Cierra la votación, cuenta los votos (recién acá se miran, nunca antes)
+// y define un ganador. Si hay empate en el primer puesto, no se elige
+// nadie automáticamente — el admin lo resuelve a mano con el selector.
+window.closeMotmVoting = function (matchId) {
+  runAction(async () => {
+    const snap = await getDocs(collection(db, "matches", matchId, "motmVotes"));
+    const tally = new Map();
+    snap.forEach((d) => {
+      const votedForId = d.data().votedForId;
+      if (!votedForId) return;
+      tally.set(votedForId, (tally.get(votedForId) || 0) + 1);
+    });
+    let winnerId = null;
+    if (tally.size > 0) {
+      const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+      const topCount = sorted[0][1];
+      const tiedAtTop = sorted.filter(([, count]) => count === topCount);
+      winnerId = tiedAtTop.length === 1 ? tiedAtTop[0][0] : null;
+    }
+    await updateDoc(doc(db, "matches", matchId), { motmVotingOpen: false, motmPlayerId: winnerId });
+    if (snap.size === 0) showToast("Votación cerrada (todavía no había votado nadie).");
+    else if (winnerId) showToast(`Votación cerrada — figura del partido revelada (${snap.size} votos).`);
+    else showToast("¡Empate en la votación! Elegí manualmente quién fue la figura.", "error");
+  });
+};
+
+// Voto de un jugador (puede cambiarlo mientras la votación siga abierta,
+// porque simplemente pisa su propio documento). No hay forma de ver quién
+// va ganando desde acá: el resultado se conoce recién cuando un admin
+// cierra la votación.
+window.voteMotm = function (matchId, votedForId) {
+  runAction(async () => {
+    if (!state.playerId) throw new Error("Elegí tu nombre primero.");
+    if (votedForId === state.playerId) throw new Error("No te podés votar a vos mismo.");
+    await setDoc(doc(db, "matches", matchId, "motmVotes", state.playerId), {
+      votedForId, votedAt: serverTimestamp(),
+    });
+    showToast("¡Voto registrado! Gracias.");
+  });
+};
+
+// Bolso de lavado: igual que la figura del partido, es un campo más en el
+// documento del partido (matches.bolsoPlayerId) — no hace falta colección
+// aparte ni votación, lo designa directamente un admin.
+window.setBolso = function (matchId, playerId) {
+  runAction(async () => {
+    await updateDoc(doc(db, "matches", matchId), { bolsoPlayerId: playerId || null });
+    showToast(playerId ? "Bolso asignado." : "Bolso sin asignar.");
+  });
+};
+
+// El total recaudado combina lo que pagaron los jugadores (subcolección
+// "payments") y lo que pagaron los invitados sueltos del partido
+// (subcolección "guests") — ambas son de solo-lectura-para-admin, así que
+// el total se guarda además como campo público en el propio documento del
+// partido (matches.totalRecaudado) para que todo el equipo lo vea sin
+// necesidad de poder leer el detalle. Los "override" son para poder
+// recalcular con un cambio que todavía no volvió del listener, y que el
+// total se vea al toque en vez de esperar el viaje de ida y vuelta.
+function computeTotalRecaudado(overrides) {
+  overrides = overrides || {};
+  let total = 0;
+  for (const p of state.detailPayments) {
+    if (overrides.playerId && p.id === overrides.playerId) continue;
+    total += p.amount || 0;
+  }
+  if (overrides.playerId) total += overrides.playerAmount || 0;
+  for (const g of state.detailGuests) {
+    if (overrides.guestId && g.id === overrides.guestId) continue;
+    total += g.amount || 0;
+  }
+  if (overrides.guestId) total += overrides.guestAmount || 0;
+  return total;
+}
+
+// Plata de la cancha: cuánto pagó cada jugador ese partido.
+window.setPayment = function (matchId, playerId, amountStr) {
+  runAction(async () => {
+    const trimmed = (amountStr || "").trim();
+    const amount = trimmed === "" ? null : Number(trimmed);
+    if (amount !== null && (isNaN(amount) || amount < 0)) throw new Error("Ese monto no es válido.");
+    if (amount === null) {
+      await deleteDoc(doc(db, "matches", matchId, "payments", playerId));
+    } else {
+      await setDoc(doc(db, "matches", matchId, "payments", playerId), { amount });
+    }
+    const total = computeTotalRecaudado({ playerId, playerAmount: amount });
+    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: total });
+  });
+};
+
+// Atajo para cargar la misma cuota a todos los presentes de una sola vez
+// (jugadores E invitados), sin perder la posibilidad de después ajustar a
+// mano algún caso puntual (alguien que pagó de más/de menos) con los
+// campos de arriba.
+window.applySuggestedPayment = function (matchId, amountStr) {
+  const amount = Number((amountStr || "").trim());
+  if (isNaN(amount) || amount <= 0) { showToast("Poné un monto válido.", "error"); return; }
+  const presentIds = presentPlayerIdsForMatch(matchId);
+  const guestIds = state.detailGuests.map((g) => g.id);
+  if (presentIds.length === 0 && guestIds.length === 0) { showToast("Todavía no marcaste a nadie como presente en Asistencia.", "error"); return; }
+  if (!confirm(`¿Aplicar $${amount} a los ${presentIds.length + guestIds.length} presentes (jugadores + invitados)? Esto pisa los montos que ya hayas cargado.`)) return;
+  runAction(async () => {
+    const batch = writeBatch(db);
+    for (const id of presentIds) {
+      batch.set(doc(db, "matches", matchId, "payments", id), { amount });
+    }
+    for (const id of guestIds) {
+      batch.update(doc(db, "matches", matchId, "guests", id), { amount });
+    }
+    await batch.commit();
+    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: amount * (presentIds.length + guestIds.length) });
+    showToast("Cuota aplicada a los presentes.");
+  });
+};
+
+// Invitados sueltos: chicos que van a dar una mano un domingo puntual, sin
+// ser parte fija del equipo. Se cargan solo para ESE partido (asistencia +
+// plata) y no tocan para nada el plantel ni las estadísticas históricas —
+// viven en su propia subcolección, separada de "players".
+window.addGuest = function (matchId, name) {
+  runAction(async () => {
+    if (!name || !name.trim()) throw new Error("Falta el nombre del invitado.");
+    await addDoc(collection(db, "matches", matchId, "guests"), {
+      name: name.trim(), amount: null, createdAt: serverTimestamp(),
+    });
+    showToast("Invitado agregado a este partido.");
+    const input = document.getElementById(`guest-name-${matchId}`);
+    if (input) input.value = "";
+  });
+};
+
+window.removeGuest = function (matchId, guestId) {
+  runAction(async () => {
+    await deleteDoc(doc(db, "matches", matchId, "guests", guestId));
+    const total = computeTotalRecaudado({ guestId, guestAmount: 0 });
+    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: total });
+  });
+};
+
+window.setGuestPayment = function (matchId, guestId, amountStr) {
+  runAction(async () => {
+    const trimmed = (amountStr || "").trim();
+    const amount = trimmed === "" ? null : Number(trimmed);
+    if (amount !== null && (isNaN(amount) || amount < 0)) throw new Error("Ese monto no es válido.");
+    await updateDoc(doc(db, "matches", matchId, "guests", guestId), { amount });
+    const total = computeTotalRecaudado({ guestId, guestAmount: amount });
+    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: total });
+  });
+};
+
+// Asistencia real (distinta del voto "Voy" de antes de jugar): un admin
+// marca después del partido quién estuvo de verdad en la cancha. Guardamos
+// siempre un documento con present:true/false explícito (nunca lo
+// borramos) para que tocar un casillero no afecte a los demás jugadores
+// que todavía no se tocaron en este partido (esos siguen usando el voto
+// "Voy" como aproximación hasta que alguien los marque a ellos también).
+// Se guarda solo, sin botón, apenas se toca cada casillero.
+window.toggleAttendance = function (matchId, playerId, present) {
+  runAction(async () => {
+    const ref = doc(db, "matches", matchId, "attendance", playerId);
+    await setDoc(ref, { present: !!present });
+  });
+};
+
+window.addCard = function (matchId, playerId, type) {
+  runAction(async () => {
+    if (!playerId) throw new Error("Falta elegir el jugador.");
+    await addDoc(collection(db, "matches", matchId, "cards"), {
+      playerId, type, createdAt: serverTimestamp(),
+    });
+  });
+};
+
+window.deleteCard = function (matchId, cardId) {
+  runAction(async () => { await deleteDoc(doc(db, "matches", matchId, "cards", cardId)); });
+};
+
+// Trae la tabla de posiciones Y el top de goleadores de la liga (vía la
+// función serverless api/standings.js, el único "pedacito de servidor" de
+// todo el proyecto — hace falta porque el sitio de la liga no se puede
+// leer directo desde el navegador de cada jugador) y los guarda en
+// Firestore para que los vea todo el mundo sin tener que volver a pedirlos.
+window.refreshStandings = function () {
+  state.standingsRefreshing = true;
+  route();
+  runAction(async () => {
+    let data;
+    try {
+      const res = await fetch("/api/standings");
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || "No se pudo traer la tabla de la liga.");
+    } catch (err) {
+      throw new Error(
+        (err && err.message) ||
+          "No se pudo contactar a la liga. Puede ser algo temporal — probá de nuevo en un rato."
+      );
+    }
+    await setDoc(doc(db, "config", "standings"), {
+      rows: data.rows,
+      scorers: data.scorers || [],
+      fetchedAt: serverTimestamp(),
+    });
+    showToast("Tabla de posiciones y goleadores actualizados.");
+  }).then(() => {
+    state.standingsRefreshing = false;
+    route();
+  });
+};
+
+window.goToStats = function () {
+  navigate("#/estadisticas");
+  // Siempre se recarga (no solo la primera vez): las estadísticas se arman
+  // con datos de todos los partidos, así que cualquier cambio hecho desde
+  // que se cargaron por última vez (borrar/deshacer un partido, cargar
+  // goles/tarjetas/asistencia, etc.) las puede haber dejado desactualizadas.
+  loadStats();
+};
+
+window.setStatsTab = function (tab) {
+  state.statsTab = tab;
+  route();
+};
+
+// =========================================================================
+// RENDER
+// =========================================================================
+function render(hash) {
+  if (!state.ready) {
+    document.getElementById("navbar").innerHTML = "";
+    document.getElementById("app").innerHTML = `<div class="py-20 text-center text-gray-400">Cargando…</div>`;
+    return;
+  }
+
+  renderNavbar();
+
+  if (hash.startsWith("#/admin")) {
+    if (!state.isAdmin) { renderAdminLogin(); return; }
+  }
+
+  if (hash === "#/quien-sos") return renderQuienSos();
+  if (hash === "#/admin-login") return state.isAdmin ? navigate("#/admin/partido") : renderAdminLogin();
+  if (hash === "#/admin/plantel") return renderAdminPlantel();
+  if (hash === "#/admin/partido") return renderAdminPartido();
+  if (hash.startsWith("#/admin/partido/")) return renderAdminPartidoDetalle(hash.split("/")[3]);
+  if (hash === "#/estadisticas") return renderEstadisticas();
+
+  // Home ("#/" o cualquier otra cosa)
+  if (!state.playerId || !currentPlayer()) return renderQuienSos();
+  return renderDashboard();
+}
+
+function renderNavbar() {
+  const player = currentPlayer();
+  document.getElementById("navbar").innerHTML = `
+    <header class="bg-gradient-to-r from-club-dark via-club-dark to-club-green shadow-md">
+      <div class="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
+        <a href="#/" class="flex items-center gap-2.5">
+          <img src="/icons/icon-192.png" alt="Escudo Trébol FC" class="h-9 w-9 rounded-full ring-2 ring-white/25" />
+          <span class="font-display text-lg font-semibold uppercase tracking-wide text-white">Trébol FC</span>
+        </a>
+        <nav class="flex flex-wrap items-center justify-end gap-1">
+          <a href="#/estadisticas" onclick="goToStats()" class="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white">Estadísticas</a>
+          <a href="https://www.youtube.com/@ElTrebolFC22" target="_blank" rel="noopener noreferrer" class="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white">▶ YouTube</a>
+          ${state.isAdmin ? `
+            <a href="#/admin/partido" class="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white">Partido</a>
+            <a href="#/admin/plantel" class="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white">Plantel</a>
+            <button onclick="adminLogout()" class="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white">Salir admin</button>
+          ` : ""}
+          ${player ? `
+            <span class="hidden px-2 text-sm text-white/60 sm:inline">${displayName(player)}</span>
+            <button onclick="changePlayer()" class="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white">Cambiar</button>
+          ` : ""}
+        </nav>
+      </div>
+    </header>
+  `;
+}
+
+function renderQuienSos() {
+  const activos = state.players.filter((p) => p.active !== false);
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-4">
+      <div class="flex flex-col items-center pb-2 pt-4 text-center">
+        <img src="/icons/icon-192.png" alt="Escudo Trébol FC" class="mb-3 h-16 w-16 rounded-full shadow-md" />
+        <h1 class="font-display text-2xl font-semibold uppercase tracking-wide text-gray-900">¿Quién sos?</h1>
+        <p class="mt-1 text-sm text-gray-500">Elegí tu nombre para poder votar en los próximos partidos.</p>
+      </div>
+      ${activos.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>` : `
+        <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          ${activos.map((p) => `
+            <button onclick="selectPlayer('${p.id}')" class="card-lift btn rounded-xl bg-white p-3 text-center text-sm font-medium text-gray-800 shadow-sm ring-1 ring-gray-100 hover:bg-club-green hover:text-white hover:ring-club-green">
+              ${displayNameWithCaptain(p)}
+            </button>
+          `).join("")}
+        </div>
+      `}
+      <div class="pt-4 text-center">
+        <a href="#/admin-login" class="text-xs text-gray-400 underline underline-offset-2">Acceso de administrador</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminLogin() {
+  document.getElementById("app").innerHTML = `
+    <div class="flex min-h-[60vh] items-center justify-center">
+      <form onsubmit="event.preventDefault(); adminLogin(document.getElementById('pin').value); return false;" class="w-full max-w-xs space-y-4 rounded-2xl bg-white p-6 shadow-md ring-1 ring-gray-100">
+        <div class="text-center">
+          <img src="/icons/icon-192.png" alt="Escudo Trébol FC" class="mx-auto mb-2 h-12 w-12 rounded-full shadow-sm" />
+          <label for="pin" class="mb-1 block text-sm font-medium text-gray-700">PIN de administrador</label>
+          <input id="pin" type="password" autocomplete="off" required
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-widest focus:border-club-green focus:outline-none focus:ring-1 focus:ring-club-green" />
+        </div>
+        <button type="submit" class="btn w-full rounded-lg bg-club-green px-4 py-2 font-semibold text-white hover:opacity-90">Entrar</button>
+      </form>
+    </div>
+  `;
+}
+
+// =========================================================================
+// MURO DE COMENTARIOS Y REACCIONES (por partido)
+// =========================================================================
+const REACTION_EMOJIS = ["👍", "😂", "🔥", "👏"];
+
+// Cada jugador tiene como máximo UNA reacción por comentario (elegir otro
+// emoji cambia la reacción, tocar el mismo la saca) — se guarda como un mapa
+// simple { [playerId]: emoji } en el propio documento del comentario. Se
+// actualiza mandando el mapa entero ya modificado (no con arrayUnion ni
+// "field paths" con punto) para no depender de esas partes más avanzadas
+// del SDK, que además complicarían el mock usado en los tests.
+function findComment(commentId) {
+  return (
+    state.nextMatchComments.find((c) => c.id === commentId) ||
+    state.lastPlayedComments.find((c) => c.id === commentId) ||
+    state.detailComments.find((c) => c.id === commentId) ||
+    null
+  );
+}
+
+window.postComment = function (matchId, text) {
+  const trimmed = (text || "").trim();
+  if (!trimmed) return;
+  runAction(async () => {
+    await addDoc(collection(db, "matches", matchId, "comments"), {
+      authorId: state.playerId,
+      text: trimmed.slice(0, 500),
+      reactions: {},
+      createdAt: serverTimestamp(),
+    });
+    const input = document.getElementById(`comment-input-${matchId}`);
+    if (input) input.value = "";
+  });
+};
+
+window.deleteComment = function (matchId, commentId) {
+  if (!confirm("¿Borrar este comentario? No se puede deshacer.")) return;
+  runAction(async () => {
+    await deleteDoc(doc(db, "matches", matchId, "comments", commentId));
+  });
+};
+
+window.toggleReaction = function (matchId, commentId, emoji) {
+  runAction(async () => {
+    const comment = findComment(commentId);
+    const next = { ...((comment && comment.reactions) || {}) };
+    if (next[state.playerId] === emoji) delete next[state.playerId];
+    else next[state.playerId] = emoji;
+    await updateDoc(doc(db, "matches", matchId, "comments", commentId), { reactions: next });
+  });
+};
+
+// Se reutiliza para el próximo partido, el último jugado, y (en modo admin)
+// el partido que se esté viendo en el detalle — así todos comparten la
+// misma UI y las mismas reglas de Firestore.
+function commentsWallCard(matchId, comments, title) {
+  if (!matchId) return "";
+  const inputId = `comment-input-${matchId}`;
+  return `
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+      <h3 class="mb-3 font-semibold text-gray-900">💬 ${escapeHtml(title)}</h3>
+      ${comments.length === 0 ? `
+        <p class="mb-3 text-sm text-gray-400">Todavía no hay comentarios. ¡Sé el primero en escribir algo!</p>
+      ` : `
+        <ul class="mb-4 space-y-3">
+          ${comments.map((c) => {
+            const author = state.playersById[c.authorId];
+            const reactions = c.reactions || {};
+            const counts = {};
+            Object.values(reactions).forEach((e) => { counts[e] = (counts[e] || 0) + 1; });
+            const myReaction = state.playerId ? reactions[state.playerId] : null;
+            const canDelete = state.isAdmin || (state.playerId && c.authorId === state.playerId);
+            return `
+              <li class="rounded-xl bg-gray-50 p-3">
+                <div class="flex items-start justify-between gap-2">
+                  <p class="text-sm">
+                    <span class="font-semibold text-gray-900">${author ? displayNameWithCaptain(author) : "Alguien"}</span>
+                    <span class="ml-1.5 text-xs text-gray-400">${c.createdAt ? fmtShort.format(tsToDate(c.createdAt)) : ""}</span>
+                  </p>
+                  ${canDelete ? `<button onclick="deleteComment('${matchId}','${c.id}')" class="shrink-0 text-xs text-gray-400 hover:text-red-600" title="Borrar comentario">🗑</button>` : ""}
+                </div>
+                <p class="mt-1 whitespace-pre-wrap break-words text-sm text-gray-800">${escapeHtml(c.text)}</p>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  ${REACTION_EMOJIS.map((emoji) => `
+                    <button onclick="toggleReaction('${matchId}','${c.id}','${emoji}')" class="btn rounded-full px-2 py-0.5 text-xs ${myReaction === emoji ? "bg-club-green/15 text-club-green ring-1 ring-club-green" : "bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"}">
+                      ${emoji}${counts[emoji] ? ` ${counts[emoji]}` : ""}
+                    </button>
+                  `).join("")}
+                </div>
+              </li>
+            `;
+          }).join("")}
+        </ul>
+      `}
+      ${state.playerId ? `
+        <form onsubmit="event.preventDefault(); postComment('${matchId}', document.getElementById('${inputId}').value); return false;" class="flex gap-2">
+          <input id="${inputId}" maxlength="500" placeholder="Escribí algo…" class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <button type="submit" class="btn rounded-lg bg-club-green px-3 py-2 text-sm font-semibold text-white hover:opacity-90">Publicar</button>
+        </form>
+      ` : ""}
+    </section>
+  `;
+}
+
+// =========================================================================
+// CUMPLEAÑOS DEL PLANTEL
+// =========================================================================
+// "Hoy" en el huso horario de Argentina, como partes sueltas — así se puede
+// comparar mes/día del cumpleaños de cada uno sin que la zona horaria del
+// celu de cada jugador corra la fecha un día para un lado o el otro.
+function todayPartsBA() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return { year: get("year"), month: get("month"), day: get("day") };
+}
+
+function playersWithBirthdayToday() {
+  const today = todayPartsBA();
+  return state.players.filter((p) => {
+    if (p.active === false || !p.birthday) return false;
+    const [, month, day] = p.birthday.split("-");
+    return month === today.month && day === today.day;
   });
 }
 
-// ── TOPBAR ───────────────────────────────────────────────────────────────
-function topbar(title, showBack = false, showAdmin = false) {
+function formatBirthdayShort(birthday) {
+  const [, month, day] = birthday.split("-");
+  return `${day}/${month}`;
+}
+
+const MESES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+// 3 <select> (día/mes/año) para cargar el cumpleaños de un jugador desde
+// Plantel — ver el comentario de setBirthdayPart para el porqué de no usar
+// un <input type="date"> nativo.
+function birthdayPickerRow(p) {
+  const [by, bm, bd] = p.birthday
+    ? p.birthday.split("-").map((n) => parseInt(n, 10))
+    : [null, null, null];
+  const currentYear = parseInt(todayPartsBA().year, 10);
+  const years = [];
+  for (let y = currentYear - 80; y <= currentYear; y++) years.push(y);
   return `
-  <div class="bg-as-navy text-white px-4 py-3 flex items-center gap-3 sticky top-0 z-30">
-    ${showBack ? `<button onclick="history.back()" class="p-1 -ml-1">
-      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-    </button>` : `<span class="font-display text-xl font-bold text-as-orange tracking-wide">AS13</span>`}
-    <span class="font-semibold text-sm flex-1">${esc(title)}</span>
-    ${showAdmin && !isAdmin ? `<button onclick="route('admin-login')" class="text-xs text-white/40 hover:text-white/70 transition-colors">Admin</button>` : ""}
-    ${isAdmin ? `<button onclick="doSignOut()" class="text-xs text-white/40 hover:text-white/70 transition-colors">Salir</button>` : ""}
-  </div>`;
+    <div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-gray-500" data-birthday-row>
+      <span>🎂</span>
+      <select data-part="day" onchange="setBirthdayPart('${p.id}', this.closest('[data-birthday-row]'))" class="rounded border border-gray-300 px-1.5 py-1 text-xs">
+        <option value="">Día</option>
+        ${Array.from({ length: 31 }, (_, i) => i + 1)
+          .map((d) => `<option value="${d}" ${bd === d ? "selected" : ""}>${d}</option>`)
+          .join("")}
+      </select>
+      <select data-part="month" onchange="setBirthdayPart('${p.id}', this.closest('[data-birthday-row]'))" class="rounded border border-gray-300 px-1.5 py-1 text-xs">
+        <option value="">Mes</option>
+        ${MESES.map((m, i) => `<option value="${i + 1}" ${bm === i + 1 ? "selected" : ""}>${m}</option>`).join("")}
+      </select>
+      <select data-part="year" onchange="setBirthdayPart('${p.id}', this.closest('[data-birthday-row]'))" class="rounded border border-gray-300 px-1.5 py-1 text-xs">
+        <option value="">Año</option>
+        ${years.map((y) => `<option value="${y}" ${by === y ? "selected" : ""}>${y}</option>`).join("")}
+      </select>
+      ${p.birthday ? `<span class="text-gray-400">(${formatBirthdayShort(p.birthday)})</span>` : ""}
+    </div>
+  `;
 }
 
-window.doSignOut = async function() {
-  // Solo cerramos la sesión admin, no la sesión anónima
-  try { await deleteDoc(doc(db, "adminSessions", uid)); } catch(e) {}
-  isAdmin = false;
-  showPublicNav();
-  toast("Sesión de admin cerrada");
-  route("inicio");
-};
-
-// ═══════════════════════════════════════════════════════════════
-// VISTAS PÚBLICAS
-// ═══════════════════════════════════════════════════════════════
-
-// ── INICIO ───────────────────────────────────────────────────────────────
-async function renderInicio() {
-  const mes = mesActual();
-  const app = document.getElementById("app");
-  app.innerHTML = topbar("Inicio", false, true) + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-
-    <div class="bg-as-navy rounded-2xl p-5 text-white">
-      <p class="text-xs text-white/60 font-display tracking-widest uppercase mb-1">AS13 · 10 años</p>
-      <h1 class="font-display text-2xl font-bold mb-1">${mesLabel(mes)}</h1>
-      <p class="text-sm text-white/70">Sistema de desafíos del equipo</p>
+// Cartel de cumpleaños en la pantalla principal: no se muestra nada si hoy
+// no cumple años ningún jugador activo.
+function birthdayBanner() {
+  const celebrants = playersWithBirthdayToday();
+  if (celebrants.length === 0) return "";
+  const today = todayPartsBA();
+  return `
+    <div class="overflow-hidden rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-500 p-5 text-center shadow-sm">
+      ${celebrants.map((p) => {
+        const birthYear = parseInt(p.birthday.split("-")[0], 10);
+        const age = birthYear ? parseInt(today.year, 10) - birthYear : null;
+        return `<p class="font-display text-lg font-semibold text-white">🎂 ¡Hoy cumple${age ? ` ${age} años` : ""} ${displayName(p)}! 🎉</p>`;
+      }).join("")}
     </div>
-
-    <div id="inicio-stats" class="grid grid-cols-2 gap-3">
-      <div class="bg-white rounded-xl p-4 text-center animate-pulse"><div class="h-8 bg-gray-100 rounded"></div></div>
-      <div class="bg-white rounded-xl p-4 text-center animate-pulse"><div class="h-8 bg-gray-100 rounded"></div></div>
-    </div>
-
-    <div class="bg-white rounded-xl p-4">
-      <h2 class="font-semibold text-sm text-gray-700 mb-3">Ranking del mes</h2>
-      <div id="inicio-ranking">
-        <div class="space-y-2">
-          ${[1,2,3].map(() => `<div class="h-10 bg-gray-100 rounded-lg animate-pulse"></div>`).join("")}
-        </div>
-      </div>
-      <button onclick="route('ranking')" class="mt-3 w-full text-xs text-as-orange font-medium">Ver ranking completo →</button>
-    </div>
-
-    <div class="bg-white rounded-xl p-4">
-      <h2 class="font-semibold text-sm text-gray-700 mb-3">Reseñas del mes</h2>
-      <div id="inicio-resenas">
-        <div class="h-16 bg-gray-100 rounded-lg animate-pulse"></div>
-      </div>
-      <button onclick="route('resenas')" class="mt-3 w-full text-xs text-as-orange font-medium">Ver todas las reseñas →</button>
-    </div>
-
-    <div id="cumple-card"></div>
-
-    <button onclick="route('comentarios')" class="w-full bg-as-orange text-white rounded-xl py-3 font-semibold text-sm btn">
-      💬 Dejar un comentario
-    </button>
-
-  </div>`;
-
-  // Cargar stats reales
-  loadInicioData(mes);
+  `;
 }
 
-async function loadInicioData(mes) {
-  try {
-    // Conteo empleados activos
-    const nEmp = empleados.length;
+// Tarjeta para votar la figura del último partido jugado (cuando un admin
+// abrió la votación) o para ver quién ganó (cuando ya se cerró). No se
+// muestra nada para partidos donde nunca se usó esta función.
+function motmVoteCard(lastPlayed) {
+  if (!lastPlayed) return "";
+  if (!lastPlayed.motmVotingOpen && !lastPlayed.motmPlayerId) return "";
+  const attendanceIds = new Set(state.lastPlayedAttendance.filter((a) => a.present).map((a) => a.id));
 
-    // Evaluaciones del mes para stats
-    const evals = await getDocs(
-      query(collection(db,"evaluaciones"), where("mes","==",mes))
-    );
-    const ptsMap = {};
-    evals.forEach(d => {
-      const v = d.data();
-      if (!ptsMap[v.empleadoId]) ptsMap[v.empleadoId] = 0;
-      ptsMap[v.empleadoId] += (v.puntos || 0);
-    });
-
-    const ranking = empleados.map(e => ({
-      ...e, pts: Math.min(ptsMap[e.id] || 0, 100)
-    })).sort((a,b) => b.pts - a.pts);
-
-    const enOro = ranking.filter(e => e.pts >= 80).length;
-
-    // Stats cards
-    document.getElementById("inicio-stats").innerHTML = `
-      <div class="bg-white rounded-xl p-4 text-center">
-        <p class="text-2xl font-bold text-as-navy">${nEmp}</p>
-        <p class="text-xs text-gray-500 mt-1">Empleados activos</p>
+  if (!lastPlayed.motmVotingOpen) {
+    return `
+      <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+        <h3 class="font-semibold text-gray-900">🏅 Figura del partido vs ${escapeHtml(lastPlayed.opponent)}</h3>
+        <p class="mt-1 text-sm text-gray-700">${displayNameWithCaptain(state.playersById[lastPlayed.motmPlayerId])}</p>
       </div>
-      <div class="bg-white rounded-xl p-4 text-center">
-        <p class="text-2xl font-bold text-amber-500">${enOro}</p>
-        <p class="text-xs text-gray-500 mt-1">En nivel Oro</p>
-      </div>`;
+    `;
+  }
 
-    // Top 3
-    document.getElementById("inicio-ranking").innerHTML = ranking.slice(0,3).map((e,i) => `
-      <div class="flex items-center gap-3 py-2 ${i < 2 ? "border-b border-gray-100" : ""}">
-        <span class="w-6 h-6 rounded-full bg-gray-100 text-xs font-bold flex items-center justify-content text-gray-600 flex-shrink-0" style="display:flex;align-items:center;justify-content:center">${i+1}</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-gray-800 truncate">${esc(e.nombre)}</p>
-          <div class="bar-wrap"><div class="bar-fill" style="width:${e.pts}%;background:${nivelColor(e.pts)}"></div></div>
+  const iAttended = !!state.playerId && attendanceIds.has(state.playerId);
+  const myVote = state.lastPlayedMotmVotes.find((v) => v.id === state.playerId);
+  const candidates = state.players.filter((p) => attendanceIds.has(p.id) && p.id !== state.playerId);
+
+  let body;
+  if (!state.playerId) {
+    body = `<p class="text-sm text-gray-400">Elegí tu nombre para poder votar.</p>`;
+  } else if (!iAttended) {
+    body = `<p class="text-sm text-gray-400">Solo pueden votar los que estuvieron en la cancha.</p>`;
+  } else if (candidates.length === 0) {
+    body = `<p class="text-sm text-gray-400">Todavía no hay candidatos para votar.</p>`;
+  } else {
+    body = `
+      ${myVote
+        ? `<p class="mb-2 text-xs text-club-green">✓ Ya votaste — podés cambiar tu voto tocando otro nombre.</p>`
+        : `<p class="mb-2 text-xs text-gray-400">Elegí a un compañero (no te podés votar a vos mismo).</p>`}
+      <div class="grid grid-cols-2 gap-2">
+        ${candidates.map((p) => `
+          <button onclick="voteMotm('${lastPlayed.id}','${p.id}')" class="btn rounded-lg px-3 py-2 text-sm font-medium ${myVote && myVote.votedForId === p.id ? "bg-club-green text-white shadow-sm" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}">${displayNameWithCaptain(p)}</button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+      <h3 class="mb-1 font-semibold text-gray-900">🏅 ¿Quién fue la figura vs ${escapeHtml(lastPlayed.opponent)}?</h3>
+      <p class="mb-3 text-xs text-gray-400">Votación abierta — el resultado se revela cuando un admin la cierre.</p>
+      ${body}
+    </div>
+  `;
+}
+
+function renderDashboard() {
+  const match = state.nextMatch;
+  const player = currentPlayer();
+  const votes = match ? (state.votesByMatch[match.id] || []) : [];
+  const myVote = votes.find((v) => v.id === state.playerId);
+  // Si alguien votó "Voy" y después se lo eliminó definitivamente del
+  // plantel, su voto queda huérfano (ya no hay jugador al que apuntar) —
+  // lo filtramos para no mostrar un "?" fantasma en Confirmados.
+  const confirmados = votes.filter((v) => v.response === "VOY" && state.playersById[v.id]);
+  const lastPlayed = state.matches.find((m) => m.status === "JUGADO") || null;
+
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      ${birthdayBanner()}
+      ${!match ? `
+        <div class="rounded-2xl bg-white p-5 text-center shadow-sm">
+          <p class="text-sm text-gray-400">Todavía no hay un próximo partido cargado.</p>
         </div>
-        <div class="text-right flex-shrink-0">
-          <p class="text-sm font-bold text-gray-800">${e.pts}</p>
-          <p class="text-xs text-gray-400">pts</p>
-        </div>
-      </div>`).join("") || `<p class="text-sm text-gray-400 text-center py-4">Sin datos este mes</p>`;
-
-    // Cumpleaños hoy
-    const hoy = new Date();
-    const diaHoy = String(hoy.getDate()).padStart(2,"0");
-    const mesHoy = String(hoy.getMonth()+1).padStart(2,"0");
-    const cumplHoy = empleados.filter(e => {
-      if (!e.nacimiento) return false;
-      const partes = e.nacimiento.split("-");
-      return partes[1] === mesHoy && partes[2] === diaHoy;
-    });
-
-    const cumpleCard = document.getElementById("cumple-card");
-    if (cumpleCard) {
-      if (cumplHoy.length > 0) {
-        cumpleCard.innerHTML = `
-          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-            <span class="text-3xl">🎂</span>
-            <div>
-              <p class="font-semibold text-amber-800">¡Hoy es el cumple de ${cumplHoy.map(e => esc(e.nombre)).join(" y ")}!</p>
-              <p class="text-xs text-amber-600 mt-0.5">No te olvidés de felicitarlo/a 🎉</p>
+      ` : `
+        <div class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
+          <div class="bg-gradient-to-r from-club-dark to-club-green px-5 py-3">
+            <p class="eyebrow text-xs font-semibold text-white/80">Próximo partido</p>
+          </div>
+          <div class="p-5">
+            <h2 class="mb-1 font-display text-2xl font-semibold text-gray-900">vs ${escapeHtml(match.opponent)}</h2>
+            <p class="mb-4 text-sm text-gray-500">
+              ${fmtShort.format(tsToDate(match.date))}${match.sede ? " · " + escapeHtml(match.sede) : ""}
+            </p>
+            <p class="mb-2 text-sm font-medium text-gray-700">¿Vas?</p>
+            <div class="flex gap-2">
+              <button onclick="vote('${match.id}','VOY')" class="btn flex-1 rounded-full px-3 py-2 text-sm font-semibold ${myVote?.response === "VOY" ? "bg-club-green text-white shadow-sm" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}">✅ Voy</button>
+              <button onclick="vote('${match.id}','TAL_VEZ')" class="btn flex-1 rounded-full px-3 py-2 text-sm font-semibold ${myVote?.response === "TAL_VEZ" ? "bg-yellow-500 text-white shadow-sm" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}">🤔 Tal vez</button>
+              <button onclick="vote('${match.id}','NO_VOY')" class="btn flex-1 rounded-full px-3 py-2 text-sm font-semibold ${myVote?.response === "NO_VOY" ? "bg-club-red text-white shadow-sm" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}">❌ No voy</button>
             </div>
-          </div>`;
-      } else {
-        // Próximo cumpleaños
-        const proximos = empleados.filter(e => e.nacimiento).map(e => {
-          const partes = e.nacimiento.split("-");
-          const dia = parseInt(partes[2]);
-          const mes = parseInt(partes[1]) - 1;
-          const proximo = new Date(hoy.getFullYear(), mes, dia);
-          if (proximo < hoy) proximo.setFullYear(hoy.getFullYear() + 1);
-          const diff = Math.ceil((proximo - hoy) / (1000*60*60*24));
-          return { ...e, diff };
-        }).sort((a,b) => a.diff - b.diff);
-        
-        if (proximos.length > 0 && proximos[0].diff <= 7) {
-          const p = proximos[0];
-          cumpleCard.innerHTML = `
-            <div class="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-center gap-3">
-              <span class="text-2xl">🎂</span>
-              <p class="text-sm text-blue-700">Cumple de <strong>${esc(p.nombre)}</strong> en ${p.diff} día${p.diff===1?"":"s"}</p>
-            </div>`;
-        }
-      }
-    }
-
-    // Reseñas
-    const rSnap = await getDocs(
-      query(collection(db,"resenas"), where("mes","==",mes))
-    );
-    const resenas = {};
-    rSnap.forEach(d => { const v = d.data(); resenas[v.fuente] = v.puntaje; });
-
-    const fuentes = [
-      {k:"google",      label:"Google",                 icon:"🔍"},
-      {k:"pedidosya_h", label:"PedidosYa Hamburguesería", icon:"🍔"},
-      {k:"pedidosya_c", label:"PedidosYa Cafetería",    icon:"☕"},
-      {k:"salon",       label:"Salón",                  icon:"🪑"},
-    ];
-
-    const todosOk = fuentes.every(f => resenas[f.k] && parseFloat(resenas[f.k]) >= METAS[f.k]);
-    document.getElementById("inicio-resenas").innerHTML =
-      (todosOk ? `<div class="flex items-center gap-2 mb-2 bg-green-50 rounded-lg px-3 py-2">
-        <span>🏆</span><p class="text-xs font-semibold text-green-700">¡Objetivos del mes alcanzados!</p>
-      </div>` : "") +
-      `<div class="flex gap-1">
-        ${fuentes.map(f => {
-          const v = resenas[f.k];
-          const ok = v && parseFloat(v) >= METAS[f.k];
-          return `<div class="flex-1 text-center">
-            <p class="text-base">${f.icon}</p>
-            <p class="text-[10px] text-gray-400 leading-tight truncate">${f.label.replace("PedidosYa ","PY ")}</p>
-            <p class="text-sm font-bold ${ok ? "text-green-600" : v ? "text-as-navy" : "text-gray-300"}">${v ? parseFloat(v).toFixed(1) : "—"}</p>
-            <p class="text-[10px] ${ok ? "text-green-500" : "text-gray-300"}">${ok ? "✓" : METAS[f.k].toFixed(1)+"★"}</p>
-          </div>`;
-        }).join("")}
-      </div>`;
-
-  } catch(e) {
-    console.error(e);
-  }
-}
-
-// ── RANKING ──────────────────────────────────────────────────────────────
-async function renderRanking() {
-  const mes = mesActual();
-  const app = document.getElementById("app");
-  app.innerHTML = topbar("Ranking del mes") + `
-  <div class="fade-up px-4 pt-4 pb-24">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-display text-lg font-bold text-as-navy">${mesLabel(mes)}</h2>
-    </div>
-    <div id="ranking-list" class="space-y-2">
-      ${[1,2,3,4,5].map(() => `<div class="h-16 bg-white rounded-xl animate-pulse"></div>`).join("")}
-    </div>
-    <div class="mt-4 bg-gray-50 rounded-xl p-4 text-xs text-gray-500 space-y-1">
-      <p><span class="badge-gold px-1.5 py-0.5 rounded text-xs font-medium">Oro</span> 80–100 pts</p>
-      <p><span class="badge-silver px-1.5 py-0.5 rounded text-xs font-medium">Plata</span> 60–79 pts</p>
-      <p><span class="badge-bronze px-1.5 py-0.5 rounded text-xs font-medium">Bronce</span> 40–59 pts</p>
-    </div>
-  </div>`;
-
-  try {
-    const evals = await getDocs(
-      query(collection(db,"evaluaciones"), where("mes","==",mes))
-    );
-    const ptsMap = {};
-    evals.forEach(d => {
-      const v = d.data();
-      if (!ptsMap[v.empleadoId]) ptsMap[v.empleadoId] = 0;
-      ptsMap[v.empleadoId] += (v.puntos || 0);
-    });
-
-    const ranking = empleados.map(e => ({
-      ...e, pts: Math.min(ptsMap[e.id] || 0, 100)
-    })).sort((a,b) => b.pts - a.pts);
-
-    document.getElementById("ranking-list").innerHTML = ranking.length
-      ? ranking.map((e,i) => `
-        <div class="bg-white rounded-xl p-4 flex items-center gap-3 card-hover">
-          <div class="w-8 h-8 rounded-full flex items-center justify-content text-sm font-bold flex-shrink-0"
-               style="display:flex;align-items:center;justify-content:center;background:${i===0?"#FEF3C7":i===1?"#F3F4F6":i===2?"#FDE8D8":"#F9FAFB"};color:${i===0?"#92400E":i===1?"#374151":i===2?"#7C2D12":"#6B7280"}">
-            ${i+1}
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-1">
-              <p class="text-sm font-semibold text-gray-800 truncate">${esc(e.nombre)}</p>
-              ${nivelBadge(e.pts)}
-            </div>
-            <div class="bar-wrap"><div class="bar-fill" style="width:${e.pts}%;background:${nivelColor(e.pts)}"></div></div>
-          </div>
-          <p class="text-lg font-bold text-gray-800 flex-shrink-0">${e.pts}</p>
-        </div>`).join("")
-      : `<div class="text-center py-12 text-gray-400">
-           <p class="text-4xl mb-2">📊</p>
-           <p class="text-sm">Sin evaluaciones este mes todavía</p>
-         </div>`;
-  } catch(err) {
-    document.getElementById("ranking-list").innerHTML =
-      `<p class="text-center text-sm text-red-500 py-8">Error al cargar el ranking</p>`;
-  }
-}
-
-// ── RESEÑAS PÚBLICAS ─────────────────────────────────────────────────────
-async function renderResenas() {
-  const mes = mesActual();
-  const app = document.getElementById("app");
-  app.innerHTML = topbar("Reseñas del mes") + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-    <p class="text-xs text-gray-400 font-medium uppercase tracking-wider">${mesLabel(mes)}</p>
-    <div id="resenas-cards" class="space-y-3">
-      <div class="h-24 bg-white rounded-xl animate-pulse"></div>
-      <div class="h-24 bg-white rounded-xl animate-pulse"></div>
-      <div class="h-24 bg-white rounded-xl animate-pulse"></div>
-    </div>
-    <h3 class="font-semibold text-sm text-gray-700 pt-2">Historial</h3>
-    <div id="resenas-historial" class="space-y-2">
-      <div class="h-16 bg-white rounded-xl animate-pulse"></div>
-    </div>
-  </div>`;
-
-  try {
-    const snap = await getDocs(
-      query(collection(db,"resenas"), where("mes","==",mes))
-    );
-    const resMap = {};
-    snap.forEach(d => { const v = d.data(); resMap[v.fuente] = v; });
-
-    const fuentes = [
-      { k:"google",      label:"Google",                  icon:"🔍", desc:"Plataforma principal de reseñas" },
-      { k:"pedidosya_h", label:"PedidosYa Hamburguesería", icon:"🍔", desc:"Tienda de hamburguesas en delivery" },
-      { k:"pedidosya_c", label:"PedidosYa Cafetería",     icon:"☕", desc:"Tienda de cafetería en delivery" },
-      { k:"salon",       label:"Salón",                   icon:"🪑", desc:"Evaluación interna del servicio" },
-    ];
-
-    // Verificar si TODOS los objetivos están alcanzados
-    const todosAlcanzados = fuentes.every(f => {
-      const r = resMap[f.k];
-      return r && parseFloat(r.puntaje) >= METAS[f.k];
-    });
-    const algunoRegistrado = fuentes.some(f => resMap[f.k]);
-
-    // Banner de objetivos alcanzados
-    let bannerHtml = "";
-    if (todosAlcanzados && algunoRegistrado) {
-      bannerHtml = `
-        <div class="bg-green-50 border-2 border-green-300 rounded-xl p-4 flex items-center gap-3 mb-1">
-          <span class="text-3xl">🏆</span>
-          <div>
-            <p class="font-bold text-green-800 text-sm">¡Objetivos del mes alcanzados!</p>
-            <p class="text-xs text-green-600 mt-0.5">Todas las reseñas superan la meta. ¡Excelente trabajo equipo!</p>
-          </div>
-        </div>`;
-    }
-
-    document.getElementById("resenas-cards").innerHTML = bannerHtml + fuentes.map(f => {
-      const r = resMap[f.k];
-      const meta = METAS[f.k];
-      const puntaje = r ? parseFloat(r.puntaje) : null;
-      const alcanzado = puntaje !== null && puntaje >= meta;
-      const color = puntaje === null ? "text-gray-300" : alcanzado ? "text-green-600" : "text-as-orange";
-      return `
-      <div class="bg-white rounded-xl p-4 ${alcanzado ? "border-l-4 border-green-400" : ""}">
-        <div class="flex items-center gap-3">
-          <span class="text-2xl">${f.icon}</span>
-          <div class="flex-1">
-            <p class="font-semibold text-sm text-gray-800">${f.label}</p>
-            <p class="text-xs text-gray-400">Meta: <span class="font-medium text-gray-600">${meta.toFixed(1)} ★</span></p>
-          </div>
-          <div class="text-right">
-            ${puntaje !== null ? `
-              <p class="text-2xl font-bold ${color}">${puntaje.toFixed(1)}</p>
-              <div class="text-sm">${starsHtml(puntaje)}</div>
-              ${alcanzado ? `<p class="text-xs text-green-600 font-semibold mt-0.5">✓ Meta lograda</p>` : `<p class="text-xs text-orange-500 mt-0.5">Faltan ${(meta - puntaje).toFixed(1)} pts</p>`}
-            ` : `<p class="text-sm text-gray-300 font-medium">Sin registrar</p>`}
           </div>
         </div>
-      </div>`;
-    }).join("");
 
-    // Historial últimos 4 meses
-    const histSnap = await getDocs(
-      query(collection(db,"resenas"), orderBy("mes","desc"), limit(20))
-    );
-    const histMeses = {};
-    histSnap.forEach(d => {
-      const v = d.data();
-      if (!histMeses[v.mes]) histMeses[v.mes] = {};
-      histMeses[v.mes][v.fuente] = v.puntaje;
-    });
-
-    const meses = Object.keys(histMeses).sort().reverse().filter(m => m !== mes).slice(0,3);
-    document.getElementById("resenas-historial").innerHTML = meses.length
-      ? meses.map(m => `
-        <div class="bg-white rounded-xl p-3">
-          <p class="text-xs font-medium text-gray-500 mb-2">${mesLabel(m)}</p>
-          <div class="flex gap-4">
-            ${["google","pedidosya_h","pedidosya_c","salon"].map(k => {
-              const v = histMeses[m][k];
-              const lbl = k==="google"?"G":k==="pedidosya_h"?"PYH":k==="pedidosya_c"?"PYC":"Sal";
-              return `<div class="text-center">
-                <p class="text-xs text-gray-400">${lbl}</p>
-                <p class="text-sm font-bold ${v?"text-gray-700":"text-gray-300"}">${v?parseFloat(v).toFixed(1):"—"}</p>
-              </div>`;
-            }).join("")}
-          </div>
-        </div>`).join("")
-      : `<p class="text-sm text-gray-400 text-center py-4">Sin historial aún</p>`;
-
-  } catch(e) {
-    document.getElementById("resenas-cards").innerHTML =
-      `<p class="text-sm text-red-500 text-center py-8">Error al cargar</p>`;
-  }
-}
-
-// ── COMENTARIOS ──────────────────────────────────────────────────────────
-async function renderComentarios() {
-  const app = document.getElementById("app");
-  app.innerHTML = topbar("Comentarios") + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-
-    <div class="bg-white rounded-xl p-4">
-      <h2 class="font-semibold text-sm text-gray-700 mb-3">Dejar un comentario</h2>
-      <div class="space-y-3">
-        <div>
-          <label>Tu nombre</label>
-          <select id="com-nombre">
-            <option value="">— Elegí tu nombre —</option>
-            ${empleados.map(e => `<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join("")}
-          </select>
-        </div>
-        <div>
-          <label>Comentario o sugerencia</label>
-          <textarea id="com-texto" rows="4" placeholder="Escribí tu sugerencia, idea o lo que tengas ganas de compartir con el equipo…"></textarea>
-        </div>
-        <button id="com-btn" onclick="enviarComentario()" class="w-full bg-as-orange text-white rounded-xl py-3 font-semibold text-sm btn">
-          Enviar comentario
-        </button>
-      </div>
-    </div>
-
-    <h3 class="font-semibold text-sm text-gray-700">Comentarios recientes</h3>
-    <div id="comentarios-lista" class="space-y-2">
-      <div class="h-16 bg-white rounded-xl animate-pulse"></div>
-    </div>
-  </div>`;
-
-  // Cargar comentarios en tiempo real
-  const unsub = onSnapshot(
-    query(collection(db,"comentarios"), orderBy("createdAt","desc"), limit(20)),
-    snap => {
-      const lista = document.getElementById("comentarios-lista");
-      if (!lista) return;
-      if (snap.empty) {
-        lista.innerHTML = `<p class="text-sm text-gray-400 text-center py-6">Todavía no hay comentarios</p>`;
-        return;
-      }
-      lista.innerHTML = snap.docs.map(d => {
-        const v = d.data();
-        const fecha = v.createdAt?.toDate?.()
-          ? v.createdAt.toDate().toLocaleDateString("es-AR", {day:"numeric",month:"short"})
-          : "";
-        return `
-        <div class="bg-white rounded-xl p-4">
-          <div class="flex items-center gap-2 mb-2">
-            <div class="w-7 h-7 rounded-full bg-as-navy/10 flex items-center justify-content text-xs font-bold text-as-navy flex-shrink-0"
-                 style="display:flex;align-items:center;justify-content:center">
-              ${esc(v.nombre||"?").charAt(0).toUpperCase()}
-            </div>
-            <p class="text-sm font-semibold text-gray-800">${esc(v.nombre)}</p>
-            <p class="text-xs text-gray-400 ml-auto">${fecha}</p>
-          </div>
-          <p class="text-sm text-gray-600 leading-relaxed">${esc(v.texto)}</p>
-          ${isAdmin ? `<button onclick="borrarComentario('${d.id}')" class="text-xs text-red-400 mt-2 hover:text-red-600 transition-colors">Eliminar</button>` : ""}
-        </div>`;
-      }).join("");
-    }
-  );
-  unsubListeners.push(unsub);
-}
-
-window.enviarComentario = async function() {
-  const nombre = document.getElementById("com-nombre").value;
-  const texto  = document.getElementById("com-texto").value.trim();
-  if (!nombre) { toast("Elegí tu nombre primero"); return; }
-  if (!texto)  { toast("Escribí algo primero"); return; }
-
-  const btn = document.getElementById("com-btn");
-  btn.disabled = true; btn.textContent = "Enviando…";
-
-  try {
-    const emp = empleados.find(e => e.id === nombre);
-    await addDoc(collection(db,"comentarios"), {
-      nombre:     emp ? emp.nombre : nombre,
-      empleadoId: nombre,
-      texto,
-      createdAt:  serverTimestamp(),
-    });
-    document.getElementById("com-texto").value = "";
-    document.getElementById("com-nombre").value = "";
-    toast("Comentario enviado ✓");
-  } catch(e) {
-    toast("Error al enviar, intentá de nuevo");
-  } finally {
-    btn.disabled = false; btn.textContent = "Enviar comentario";
-  }
-};
-
-window.borrarComentario = async function(id) {
-  if (!confirm("¿Eliminar este comentario?")) return;
-  await deleteDoc(doc(db,"comentarios",id));
-  toast("Comentario eliminado");
-};
-
-// ═══════════════════════════════════════════════════════════════
-// ADMIN LOGIN
-// ═══════════════════════════════════════════════════════════════
-function renderAdminLogin() {
-  const appEl = document.getElementById("app");
-  document.getElementById("bottom-nav").classList.add("hidden");
-  document.getElementById("admin-nav").classList.add("hidden");
-  appEl.innerHTML = `
-  <div class="fade-up min-h-screen flex flex-col items-center justify-center px-6 pb-8">
-    <div class="w-full max-w-xs">
-      <div class="text-center mb-8">
-        <h1 class="font-display text-4xl font-bold text-as-navy">AS13</h1>
-        <p class="text-sm text-gray-500 mt-1">Acceso administrador</p>
-      </div>
-      <div class="bg-white rounded-2xl p-6 space-y-4 shadow-sm">
-        <div>
-          <label>PIN de administrador</label>
-          <input type="password" id="login-pin" placeholder="••••••" autocomplete="off"
-                 maxlength="20"
-                 onkeydown="if(event.key==='Enter') doLogin()" />
-        </div>
-        <p id="login-error" class="text-xs text-red-500 hidden"></p>
-        <button onclick="doLogin()" id="login-btn"
-                class="w-full bg-as-navy text-white rounded-xl py-3 font-semibold text-sm btn">
-          Ingresar
-        </button>
-      </div>
-      <button onclick="route('inicio')" class="mt-6 w-full text-center text-xs text-gray-400 hover:text-gray-600 transition-colors">
-        ← Volver al inicio público
-      </button>
-    </div>
-  </div>`;
-  setTimeout(() => { const el = document.getElementById("login-pin"); if(el) el.focus(); }, 100);
-}
-
-window.doLogin = async function() {
-  const pin = document.getElementById("login-pin").value.trim();
-  const err = document.getElementById("login-error");
-  const btn = document.getElementById("login-btn");
-  err.classList.add("hidden");
-  if (!pin) { err.textContent = "Ingresá el PIN"; err.classList.remove("hidden"); return; }
-  btn.disabled = true; btn.textContent = "Verificando…";
-  try {
-    // Guardamos el PIN en Firestore — las reglas verifican que sea correcto
-    await setDoc(doc(db, "adminSessions", uid), { pin, createdAt: serverTimestamp() });
-    // Verificar que la sesión quedó guardada (las reglas la aceptan solo si el PIN es válido)
-    const sesSnap = await getDoc(doc(db, "adminSessions", uid));
-    if (sesSnap.exists()) {
-      isAdmin = true;
-      showAdminNav();
-      route("admin-dashboard");
-      toast("¡Bienvenido, admin! ✓");
-    } else {
-      err.textContent = "PIN incorrecto";
-      err.classList.remove("hidden");
-      btn.disabled = false; btn.textContent = "Ingresar";
-    }
-  } catch(e) {
-    err.textContent = "PIN incorrecto";
-    err.classList.remove("hidden");
-    btn.disabled = false; btn.textContent = "Ingresar";
-  }
-};
-
-// ═══════════════════════════════════════════════════════════════
-// ADMIN DASHBOARD
-// ═══════════════════════════════════════════════════════════════
-async function renderAdminDashboard() {
-  const mes = mesActual();
-  const app = document.getElementById("app");
-  app.innerHTML = topbar("Panel admin") + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-
-    <div class="bg-as-navy rounded-2xl p-5 text-white">
-      <p class="text-xs text-white/60 font-display tracking-widest uppercase">AS13 Admin</p>
-      <h2 class="font-display text-xl font-bold mt-1">${mesLabel(mes)}</h2>
-    </div>
-
-    <div class="grid grid-cols-2 gap-3" id="admin-stats">
-      <div class="bg-white rounded-xl p-4 animate-pulse h-20"></div>
-      <div class="bg-white rounded-xl p-4 animate-pulse h-20"></div>
-    </div>
-
-    <h3 class="font-semibold text-sm text-gray-700">Acciones rápidas</h3>
-    <div class="grid grid-cols-2 gap-3">
-      <button onclick="route('admin-evaluar')" class="bg-white rounded-xl p-4 text-left card-hover btn">
-        <p class="text-xl mb-1">✅</p>
-        <p class="font-semibold text-sm text-gray-800">Evaluar día</p>
-        <p class="text-xs text-gray-400">Registrar puntajes</p>
-      </button>
-      <button onclick="route('admin-limpieza')" class="bg-white rounded-xl p-4 text-left card-hover btn">
-        <p class="text-xl mb-1">🧹</p>
-        <p class="font-semibold text-sm text-gray-800">Inspección</p>
-        <p class="text-xs text-gray-400">Limpieza salón/cocina</p>
-      </button>
-      <button onclick="route('admin-resenas')" class="bg-white rounded-xl p-4 text-left card-hover btn">
-        <p class="text-xl mb-1">⭐</p>
-        <p class="font-semibold text-sm text-gray-800">Cargar reseñas</p>
-        <p class="text-xs text-gray-400">Google, PedidosYa…</p>
-      </button>
-      <button onclick="route('admin-empleados')" class="bg-white rounded-xl p-4 text-left card-hover btn">
-        <p class="text-xl mb-1">👥</p>
-        <p class="font-semibold text-sm text-gray-800">Empleados</p>
-        <p class="text-xs text-gray-400">Gestionar equipo</p>
-      </button>
-    </div>
-
-    <h3 class="font-semibold text-sm text-gray-700">Comentarios nuevos</h3>
-    <div id="admin-comentarios" class="space-y-2">
-      <div class="h-14 bg-white rounded-xl animate-pulse"></div>
-    </div>
-
-  </div>`;
-
-  // Stats
-  try {
-    const evals = await getDocs(query(collection(db,"evaluaciones"), where("mes","==",mes)));
-    const ptsMap = {};
-    evals.forEach(d => {
-      const v = d.data();
-      if (!ptsMap[v.empleadoId]) ptsMap[v.empleadoId] = 0;
-      ptsMap[v.empleadoId] += (v.puntos||0);
-    });
-    const enOro = Object.values(ptsMap).filter(p => Math.min(p,100) >= 80).length;
-
-    document.getElementById("admin-stats").innerHTML = `
-      <div class="bg-white rounded-xl p-4 text-center">
-        <p class="text-2xl font-bold text-as-navy">${empleados.length}</p>
-        <p class="text-xs text-gray-500 mt-1">Empleados activos</p>
-      </div>
-      <div class="bg-white rounded-xl p-4 text-center">
-        <p class="text-2xl font-bold text-amber-500">${enOro}</p>
-        <p class="text-xs text-gray-500 mt-1">En nivel Oro</p>
-      </div>`;
-  } catch(e) {}
-
-  // Comentarios recientes sin leer
-  const comSnap = await getDocs(
-    query(collection(db,"comentarios"), orderBy("createdAt","desc"), limit(3))
-  );
-  document.getElementById("admin-comentarios").innerHTML = comSnap.empty
-    ? `<p class="text-sm text-gray-400 text-center py-4">Sin comentarios nuevos</p>`
-    : comSnap.docs.map(d => {
-        const v = d.data();
-        return `
-        <div class="bg-white rounded-xl p-3 flex items-start gap-3">
-          <div class="w-7 h-7 rounded-full bg-as-navy/10 flex items-center justify-content text-xs font-bold text-as-navy flex-shrink-0"
-               style="display:flex;align-items:center;justify-content:center">
-            ${esc(v.nombre||"?").charAt(0)}
-          </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-xs font-semibold text-gray-700">${esc(v.nombre)}</p>
-            <p class="text-xs text-gray-500 truncate">${esc(v.texto)}</p>
-          </div>
-        </div>`;
-      }).join("");
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ADMIN EMPLEADOS
-// ═══════════════════════════════════════════════════════════════
-function renderAdminEmpleados() {
-  const app = document.getElementById("app");
-  app.innerHTML = topbar("Empleados", true) + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-    <button onclick="abrirNuevoEmpleado()"
-            class="w-full bg-as-orange text-white rounded-xl py-3 font-semibold text-sm btn flex items-center justify-center gap-2">
-      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-      Agregar empleado
-    </button>
-    <div id="emp-lista" class="space-y-2">
-      ${empleados.map(e => `
-        <div class="bg-white rounded-xl p-4 flex items-center gap-3 card-hover">
-          <div class="w-9 h-9 rounded-full bg-as-navy flex items-center justify-content text-sm font-bold text-white flex-shrink-0"
-               style="display:flex;align-items:center;justify-content:center">
-            ${esc(e.nombre).charAt(0)}
-          </div>
-          <div class="flex-1 min-w-0">
-            <p class="font-semibold text-sm text-gray-800">${esc(e.nombre)}</p>
-            <p class="text-xs text-gray-400">${esc(e.puesto||"Sin puesto")}${e.nacimiento ? " · 🎂 " + formatFecha(e.nacimiento) : ""}</p>
-          </div>
-          <div class="flex flex-col gap-1 flex-shrink-0 items-end">
-            <button onclick="abrirEditarEmpleado('${e.id}')"
-                    class="text-xs text-blue-500 hover:text-blue-700 transition-colors">Editar</button>
-            <button onclick="toggleEmpleado('${e.id}', ${e.activo !== false})"
-                    class="text-xs ${e.activo !== false ? "text-red-400 hover:text-red-600" : "text-green-600 hover:text-green-800"} transition-colors">
-              ${e.activo !== false ? "Dar de baja" : "Reactivar"}
+        <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+          <div class="mb-3 flex items-center justify-between">
+            <h3 class="font-semibold text-gray-900">Confirmados <span class="text-club-green">(${confirmados.length})</span></h3>
+            <button onclick="shareConfirmados()" class="btn flex items-center gap-1 rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-100">
+              📤 Compartir
             </button>
           </div>
-        </div>`).join("") || `<p class="text-sm text-gray-400 text-center py-8">Sin empleados cargados</p>`}
-    </div>
-  </div>
+          ${confirmados.length === 0 ? `<p class="text-sm text-gray-400">Todavía no confirmó nadie.</p>` : `
+            <ul class="space-y-1.5">
+              ${confirmados.map((v) => `<li class="flex items-center gap-2 text-sm text-gray-800"><span class="text-club-green">✓</span> ${displayNameWithCaptain(state.playersById[v.id])}</li>`).join("")}
+            </ul>
+          `}
+        </div>
 
-  <div id="modal-emp" class="modal-bg hidden" onclick="if(event.target===this)this.classList.add('hidden')">
-    <div class="modal-box">
-      <h3 class="font-semibold text-gray-800 mb-4" id="modal-emp-titulo">Nuevo empleado</h3>
-      <input type="hidden" id="emp-id" value="" />
-      <div class="space-y-3">
-        <div>
-          <label>Nombre completo *</label>
-          <input type="text" id="emp-nombre" placeholder="Ej: María González" />
+        ${commentsWallCard(match.id, state.nextMatchComments, "Comentarios")}
+      `}
+      ${lastPlayed && lastPlayed.totalRecaudado ? `
+        <div class="flex items-center gap-2 rounded-2xl bg-white p-4 text-sm text-gray-700 shadow-sm ring-1 ring-gray-100">
+          <span class="text-lg">💰</span> Se juntaron <span class="font-semibold text-gray-900">$${lastPlayed.totalRecaudado}</span> vs ${escapeHtml(lastPlayed.opponent)}
         </div>
-        <div>
-          <label>Puesto</label>
-          <input type="text" id="emp-puesto" placeholder="Ej: Cocinero, Cajero…" />
-        </div>
-        <div>
-          <label>Fecha de nacimiento</label>
-          <input type="date" id="emp-nacimiento" />
-        </div>
-        <div class="flex gap-2 pt-2">
-          <button onclick="document.getElementById('modal-emp').classList.add('hidden')"
-                  class="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 btn">Cancelar</button>
-          <button onclick="guardarEmpleado()"
-                  class="flex-1 bg-as-orange text-white rounded-xl py-2.5 text-sm font-semibold btn">Guardar</button>
-        </div>
+      ` : ""}
+      ${motmVoteCard(lastPlayed)}
+      ${commentsWallCard(lastPlayed ? lastPlayed.id : null, state.lastPlayedComments, "Comentarios del partido")}
+    </div>
+  `;
+}
+
+// Fila reutilizada tanto para jugadores como para el cuerpo técnico: mismo
+// template (nombre+insignias, capitanía, baja, cumpleaños) para los dos
+// grupos, la única diferencia entre ambos es el botón de DT.
+function plantelRow(p) {
+  return `
+    <li class="rounded-lg bg-gray-50 px-3 py-2 text-sm">
+      <div class="flex items-center justify-between">
+        <span class="${p.active === false ? "text-gray-400 line-through" : "text-gray-800"}">${displayNameWithCaptain(p)}</span>
+        <span class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+          ${p.isCaptain
+            ? `<button onclick="unsetCaptain('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar capitanía</button>`
+            : `<button onclick="setCaptain('${p.id}')" class="text-xs text-club-green hover:underline">Designar capitán</button>`
+          }
+          ${p.isDT
+            ? `<button onclick="unsetDT('${p.id}')" class="text-xs text-gray-500 hover:underline">Quitar de cuerpo técnico</button>`
+            : `<button onclick="setDT('${p.id}')" class="text-xs text-blue-700 hover:underline">Pasar a cuerpo técnico</button>`
+          }
+          <button onclick="togglePlayerActive('${p.id}', ${p.active === false})" class="text-xs ${p.active === false ? "text-club-green" : "text-red-600"} hover:underline">
+            ${p.active === false ? "Reactivar" : "Dar de baja"}
+          </button>
+          <button onclick="deletePlayerForever('${p.id}')" class="text-xs text-red-800 hover:underline" title="Borrado permanente: no se puede deshacer">
+            🗑️ Eliminar definitivamente
+          </button>
+        </span>
       </div>
-    </div>
-  </div>`;
+      <details class="mt-1">
+        <summary class="cursor-pointer text-xs text-gray-400 hover:underline">✏️ Editar nombre</summary>
+        <form onsubmit="event.preventDefault(); editPlayer('${p.id}', document.getElementById('edit-name-${p.id}').value, document.getElementById('edit-nickname-${p.id}').value); return false;" class="mt-2 grid grid-cols-2 gap-2">
+          <input id="edit-name-${p.id}" value="${escapeHtml(p.name || "")}" required placeholder="Nombre" class="col-span-2 rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-1" />
+          <input id="edit-nickname-${p.id}" value="${p.nickname ? escapeHtml(p.nickname) : ""}" placeholder="Apodo (opcional)" class="col-span-2 rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-1" />
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 sm:col-span-1">Guardar nombre</button>
+        </form>
+      </details>
+      ${birthdayPickerRow(p)}
+    </li>
+  `;
 }
 
-window.abrirNuevoEmpleado = function() {
-  document.getElementById("modal-emp-titulo").textContent = "Nuevo empleado";
-  document.getElementById("emp-id").value = "";
-  document.getElementById("emp-nombre").value = "";
-  document.getElementById("emp-puesto").value = "";
-  document.getElementById("emp-nacimiento").value = "";
-  document.getElementById("modal-emp").classList.remove("hidden");
-  setTimeout(() => document.getElementById("emp-nombre").focus(), 100);
-};
+function renderAdminPlantel() {
+  // Los dados de baja NO se borran de Firestore (para no perder sus goles,
+  // tarjetas, presencias, etc. de las estadísticas históricas), pero se
+  // sacan de las listas principales para que no queden acumulándose ahí
+  // para siempre — quedan aparte, en "Dados de baja", plegado por default.
+  const activos = state.players.filter((p) => p.active !== false);
+  const bajas = state.players.filter((p) => p.active === false);
+  const jugadores = activos.filter((p) => !p.isDT);
+  const cuerpoTecnico = activos.filter((p) => p.isDT);
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <h1 class="text-xl font-bold text-gray-900">Plantel</h1>
 
-window.abrirEditarEmpleado = function(id) {
-  const e = empleados.find(x => x.id === id);
-  if (!e) return;
-  document.getElementById("modal-emp-titulo").textContent = "Editar empleado";
-  document.getElementById("emp-id").value = id;
-  document.getElementById("emp-nombre").value = e.nombre || "";
-  document.getElementById("emp-puesto").value = e.puesto || "";
-  document.getElementById("emp-nacimiento").value = e.nacimiento || "";
-  document.getElementById("modal-emp").classList.remove("hidden");
-  setTimeout(() => document.getElementById("emp-nombre").focus(), 100);
-};
-
-window.guardarEmpleado = async function() {
-  const nombre     = document.getElementById("emp-nombre").value.trim();
-  const puesto     = document.getElementById("emp-puesto").value.trim();
-  const nacimiento = document.getElementById("emp-nacimiento").value;
-  const empId      = document.getElementById("emp-id").value;
-  if (!nombre) { toast("Ingresá el nombre"); return; }
-  try {
-    if (empId) {
-      // Editar existente
-      await updateDoc(doc(db,"empleados",empId), {
-        nombre, puesto: puesto || "", nacimiento: nacimiento || "",
-      });
-      toast("Empleado actualizado ✓");
-    } else {
-      // Nuevo
-      await addDoc(collection(db,"empleados"), {
-        nombre, puesto: puesto || "", nacimiento: nacimiento || "",
-        activo: true, creadoEn: serverTimestamp()
-      });
-      toast("Empleado agregado ✓");
-    }
-    await loadEmpleados();
-    document.getElementById("modal-emp").classList.add("hidden");
-    renderAdminEmpleados();
-  } catch(e) { toast("Error al guardar"); }
-};
-
-window.toggleEmpleado = async function(id, esActivo) {
-  const msg = esActivo ? "¿Dar de baja a este empleado?" : "¿Reactivar este empleado?";
-  if (!confirm(msg)) return;
-  await updateDoc(doc(db,"empleados",id), { activo: !esActivo });
-  await loadEmpleados();
-  toast(esActivo ? "Empleado dado de baja" : "Empleado reactivado");
-  renderAdminEmpleados();
-};
-
-// ═══════════════════════════════════════════════════════════════
-// ADMIN EVALUAR
-// ═══════════════════════════════════════════════════════════════
-async function renderAdminEvaluar() {
-  const mes = mesActual();
-  const app = document.getElementById("app");
-
-  // Cargar evaluaciones del mes
-  let evalMap = {};
-  try {
-    const snap = await getDocs(query(collection(db,"evaluaciones"), where("mes","==",mes)));
-    snap.forEach(d => {
-      const v = d.data();
-      if (!evalMap[v.empleadoId]) evalMap[v.empleadoId] = {};
-      evalMap[v.empleadoId][v.categoria] = v.puntos;
-    });
-  } catch(e) {}
-
-  const categorias = [
-    { id:"limpieza",    label:"Limpieza y orden",    max:25, icon:"✨" },
-    { id:"calidad",     label:"Calidad de comida",   max:25, icon:"🍔" },
-    { id:"resenas",     label:"Reseñas positivas",   max:20, icon:"⭐", grupal: true },
-    { id:"uniforme",    label:"Uniforme completo",   max:15, icon:"👕" },
-    { id:"puntualidad", label:"Puntualidad",         max:15, icon:"⏰" },
-  ];
-
-  app.innerHTML = topbar("Evaluar empleados", true) + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-    <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
-      Registrás el puntaje acumulado del mes. Cada categoría suma hasta su máximo. Los puntajes se pueden editar.
-    </div>
-    <p class="text-xs text-gray-400 font-medium uppercase tracking-wider">${mesLabel(mes)}</p>
-
-    ${empleados.map(emp => {
-      const ev = evalMap[emp.id] || {};
-      const total = Math.min(Object.values(ev).reduce((a,b) => a+b, 0), 100);
-      return `
-      <div class="bg-white rounded-xl overflow-hidden card-hover">
-        <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100 cursor-pointer"
-             onclick="toggleEmpPanel('${emp.id}')">
-          <div class="w-8 h-8 rounded-full bg-as-navy flex items-center justify-content text-sm font-bold text-white flex-shrink-0"
-               style="display:flex;align-items:center;justify-content:center">
-            ${esc(emp.nombre).charAt(0)}
-          </div>
-          <div class="flex-1">
-            <p class="font-semibold text-sm text-gray-800">${esc(emp.nombre)}</p>
-            <div class="bar-wrap mt-1"><div class="bar-fill" style="width:${total}%;background:${nivelColor(total)}"></div></div>
-          </div>
-          <div class="text-right flex-shrink-0">
-            <p class="font-bold text-gray-800">${total}</p>
-            <p class="text-xs text-gray-400">/ 100</p>
-          </div>
-        </div>
-        <div id="panel-${emp.id}" class="hidden px-4 pb-4 pt-2 space-y-3">
-          ${categorias.map(cat => `
-            <div class="flex items-center gap-3">
-              <span class="text-base w-6 flex-shrink-0">${cat.icon}</span>
-              <div class="flex-1">
-                <p class="text-xs font-medium text-gray-700">${cat.label} <span class="text-gray-400">(máx ${cat.max})</span>
-                  ${cat.grupal ? `<span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded ml-1">Grupal</span>` : ""}
-                </p>
-              </div>
-              <input type="number" min="0" max="${cat.max}" step="1"
-                     value="${ev[cat.id] ?? ""}"
-                     placeholder="0"
-                     class="w-16 text-center text-sm font-semibold"
-                     onchange="guardarEval('${emp.id}','${cat.id}',${cat.max},this.value)"
-                     id="eval-${emp.id}-${cat.id}" />
-            </div>`).join("")}
-        </div>
-      </div>`;
-    }).join("") || `<p class="text-sm text-gray-400 text-center py-8">Sin empleados. Primero agregá uno en la sección Empleados.</p>`}
-  </div>`;
-}
-
-window.toggleEmpPanel = function(id) {
-  const el = document.getElementById(`panel-${id}`);
-  el.classList.toggle("hidden");
-};
-
-window.guardarEval = async function(empId, catId, max, val) {
-  const pts = Math.max(0, Math.min(parseInt(val)||0, max));
-  const mes = mesActual();
-  const docId = `${mes}_${empId}_${catId}`;
-  try {
-    await setDoc(doc(db,"evaluaciones",docId), {
-      mes, empleadoId: empId, categoria: catId, puntos: pts,
-      updatedAt: serverTimestamp(),
-    });
-    toast(`Guardado: ${pts} pts ✓`);
-  } catch(e) {
-    toast("Error al guardar");
-  }
-};
-
-// ═══════════════════════════════════════════════════════════════
-// ADMIN LIMPIEZA
-// ═══════════════════════════════════════════════════════════════
-async function renderAdminLimpieza() {
-  const app = document.getElementById("app");
-  const today = new Date().toISOString().split("T")[0];
-
-  const sectores = {
-    salon:  ["Vereda","Vidriera","Salón","Cafetería","Cervezas","Heladeras","Vasos y entrega","Oficina","Baños"],
-    cocina: ["Horno","Plancha","Campana","Freidoras","Freezers","Bacha","Depósito","Panadería","Heladeras"],
-  };
-
-  app.innerHTML = topbar("Inspección de limpieza", true) + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-
-    <div class="flex gap-2">
-      <button onclick="setAreaTab('salon')" id="tab-salon"
-              class="flex-1 py-2 rounded-xl text-sm font-semibold bg-as-navy text-white btn">
-        🪑 Salón
-      </button>
-      <button onclick="setAreaTab('cocina')" id="tab-cocina"
-              class="flex-1 py-2 rounded-xl text-sm font-semibold bg-gray-100 text-gray-600 btn">
-        🍳 Cocina
-      </button>
-    </div>
-
-    <div id="limpieza-form" class="space-y-2"></div>
-
-    <div class="bg-white rounded-xl p-4">
-      <div class="flex items-center justify-between mb-2">
-        <p class="text-sm font-semibold text-gray-700">Puntaje</p>
-        <p class="text-xl font-bold text-as-navy" id="lim-score">—</p>
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">Agregar</h3>
+        <form onsubmit="event.preventDefault(); addPlayer(document.getElementById('new-player-name').value, document.getElementById('new-player-nickname').value, document.getElementById('new-player-isdt').checked); return false;" class="grid grid-cols-2 gap-3">
+          <input id="new-player-name" placeholder="Nombre" required class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-sm sm:col-span-1" />
+          <input id="new-player-nickname" placeholder="Apodo (opcional)" class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-sm sm:col-span-1" />
+          <label class="col-span-2 flex items-center gap-2 text-sm text-gray-600">
+            <input id="new-player-isdt" type="checkbox" class="h-4 w-4 rounded border-gray-300" />
+            Es del cuerpo técnico (DT / ayudante), no jugador
+          </label>
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar</button>
+        </form>
       </div>
-      <div class="bar-wrap"><div id="lim-bar" class="bar-fill" style="width:0%;background:#E8650A"></div></div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">🧑‍💼 Cuerpo técnico (${cuerpoTecnico.length})</h3>
+        ${cuerpoTecnico.length === 0
+          ? `<p class="text-sm text-gray-400">Todavía no cargaste a nadie del cuerpo técnico. Usá el formulario de arriba y tildá la casilla "Es del cuerpo técnico".</p>`
+          : `<ul class="space-y-1.5">${cuerpoTecnico.map(plantelRow).join("")}</ul>`
+        }
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">⚽ Jugadores (${jugadores.length})</h3>
+        <ul class="space-y-1.5">
+          ${jugadores.map(plantelRow).join("")}
+        </ul>
+      </div>
+
+      ${bajas.length > 0 ? `
+        <details class="rounded-2xl bg-white p-4 shadow-sm">
+          <summary class="cursor-pointer select-none text-sm font-medium text-gray-500">📥 Dados de baja (${bajas.length})</summary>
+          <p class="mt-2 text-xs text-gray-400">No aparecen para votar ni para elegir asistencia, pero sus estadísticas viejas se siguen viendo bien. Reactivalos desde acá si vuelven.</p>
+          <ul class="mt-3 space-y-1.5">
+            ${bajas.map(plantelRow).join("")}
+          </ul>
+        </details>
+      ` : ""}
     </div>
-
-    <div>
-      <label>Notas / observaciones</label>
-      <textarea id="lim-notas" rows="3" placeholder="Ej: El baño del fondo estaba sin papel…"></textarea>
-    </div>
-
-    <button onclick="guardarInspeccion()" class="w-full bg-as-orange text-white rounded-xl py-3 font-semibold text-sm btn">
-      Guardar inspección
-    </button>
-
-    <h3 class="font-semibold text-sm text-gray-700 pt-2">Últimas inspecciones</h3>
-    <div id="lim-historial" class="space-y-2">
-      <div class="h-14 bg-white rounded-xl animate-pulse"></div>
-    </div>
-  </div>`;
-
-  window.__limArea = "salon";
-  window.__limSectores = sectores;
-  window.__limChecks = {};
-  setAreaTab("salon");
-  loadLimHistorial();
+  `;
 }
 
-window.setAreaTab = function(area) {
-  window.__limArea = area;
-  window.__limChecks[area] = window.__limChecks[area] || {};
-
-  const sects = window.__limSectores[area];
-  document.getElementById("tab-salon").className =
-    `flex-1 py-2 rounded-xl text-sm font-semibold btn ${area==="salon" ? "bg-as-navy text-white" : "bg-gray-100 text-gray-600"}`;
-  document.getElementById("tab-cocina").className =
-    `flex-1 py-2 rounded-xl text-sm font-semibold btn ${area==="cocina" ? "bg-as-navy text-white" : "bg-gray-100 text-gray-600"}`;
-
-  document.getElementById("limpieza-form").innerHTML = sects.map(s => `
-    <div class="bg-white rounded-xl p-3 flex items-center gap-3">
-      <button onclick="toggleSector('${s}')"
-              class="w-7 h-7 rounded-lg border-2 flex items-center justify-content flex-shrink-0 btn transition-colors"
-              id="sec-${s.replace(/\s/g,'')}"
-              style="display:flex;align-items:center;justify-content:center;border-color:#D1D5DB">
-        <svg id="sec-ico-${s.replace(/\s/g,'')}" width="16" height="16" fill="none" stroke="transparent" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
-      </button>
-      <p class="text-sm text-gray-700 flex-1">${esc(s)}</p>
-    </div>`).join("");
-
-  updateLimScore();
-};
-
-window.toggleSector = function(s) {
-  const area = window.__limArea;
-  if (!window.__limChecks[area]) window.__limChecks[area] = {};
-  window.__limChecks[area][s] = !window.__limChecks[area][s];
-  const key = s.replace(/\s/g,"");
-  const btn = document.getElementById(`sec-${key}`);
-  const ico = document.getElementById(`sec-ico-${key}`);
-  const ok  = window.__limChecks[area][s];
-  btn.style.borderColor  = ok ? "#E8650A" : "#D1D5DB";
-  btn.style.background   = ok ? "#E8650A" : "white";
-  ico.style.stroke       = ok ? "white"   : "transparent";
-  updateLimScore();
-};
-
-function updateLimScore() {
-  const area   = window.__limArea;
-  const checks = window.__limChecks[area] || {};
-  const sects  = window.__limSectores[area];
-  const ok     = Object.values(checks).filter(Boolean).length;
-  const pct    = sects.length ? Math.round((ok / sects.length) * 100) : 0;
-  document.getElementById("lim-score").textContent = `${pct}%`;
-  const bar = document.getElementById("lim-bar");
-  bar.style.width = `${pct}%`;
-  bar.style.background = pct >= 80 ? "#10B981" : pct >= 60 ? "#F59E0B" : "#EF4444";
+function matchScoreLabel(m) {
+  if (m.status === "CANCELADO") return "Cancelado";
+  return `${m.ourScore ?? "-"} - ${m.theirScore ?? "-"}`;
 }
 
-window.guardarInspeccion = async function() {
-  const area   = window.__limArea;
-  const checks = window.__limChecks[area] || {};
-  const sects  = window.__limSectores[area];
-  const ok     = Object.values(checks).filter(Boolean).length;
-  const pct    = sects.length ? Math.round((ok / sects.length) * 100) : 0;
-  const notas  = document.getElementById("lim-notas").value.trim();
-  const today  = new Date().toISOString().split("T")[0];
+function renderAdminPartido() {
+  const match = state.nextMatch;
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">Partido de la semana</h1>
+        <p class="text-sm text-gray-500">Cargá el próximo partido para que el equipo pueda confirmar asistencia.</p>
+      </div>
 
-  try {
-    await addDoc(collection(db,"inspecciones"), {
-      area, fecha: today, mes: today.slice(0,7),
-      puntaje: pct, sectores: checks, notas,
-      createdAt: serverTimestamp(),
-    });
-    toast("Inspección guardada ✓");
-    window.__limChecks[area] = {};
-    setAreaTab(area);
-    document.getElementById("lim-notas").value = "";
-    loadLimHistorial();
-  } catch(e) {
-    toast("Error al guardar");
-  }
-};
+      <form onsubmit="event.preventDefault(); createOrUpdateMatch(${match ? `'${match.id}'` : "null"}, document.getElementById('m-date').value, document.getElementById('m-opponent').value, document.getElementById('m-sede').value); return false;" class="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="font-semibold text-gray-900">${match ? "Editar próximo partido" : "Cargar partido de la semana"}</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="col-span-2 sm:col-span-1">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Fecha y hora</label>
+            <input id="m-date" type="datetime-local" required value="${match ? toBAInputValue(tsToDate(match.date)) : ""}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Rival</label>
+            <input id="m-opponent" required value="${match ? escapeHtml(match.opponent) : ""}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          </div>
+          <div class="col-span-2">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Sede (opcional)</label>
+            <input id="m-sede" value="${match && match.sede ? escapeHtml(match.sede) : ""}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <button type="submit" class="btn rounded-lg bg-club-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">Guardar</button>
+      </form>
 
-async function loadLimHistorial() {
-  try {
-    const snap = await getDocs(
-      query(collection(db,"inspecciones"), orderBy("createdAt","desc"), limit(6))
-    );
-    const cont = document.getElementById("lim-historial");
-    if (!cont) return;
-    cont.innerHTML = snap.empty
-      ? `<p class="text-sm text-gray-400 text-center py-4">Sin inspecciones registradas</p>`
-      : snap.docs.map(d => {
-          const v = d.data();
-          const color = v.puntaje >= 80 ? "text-green-600" : v.puntaje >= 60 ? "text-amber-500" : "text-red-500";
-          return `
-          <div class="bg-white rounded-xl p-3 flex items-center gap-3">
-            <span class="text-lg">${v.area==="salon"?"🪑":"🍳"}</span>
-            <div class="flex-1">
-              <p class="text-sm font-medium text-gray-700">${v.area==="salon"?"Salón":"Cocina"} · ${v.fecha||""}</p>
-              ${v.notas ? `<p class="text-xs text-gray-400 truncate">${esc(v.notas)}</p>` : ""}
+      ${match ? `
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 class="mb-1 font-semibold text-gray-900">Antes o durante el partido</h3>
+          <p class="mb-3 text-xs text-gray-400">No hace falta esperar a marcarlo como jugado: desde acá ya podés cargar la plata que va pagando cada uno y quién se lleva el bolso.</p>
+          <a href="#/admin/partido/${match.id}" class="btn inline-block rounded-lg bg-club-green/10 px-3 py-1.5 text-sm font-medium text-club-green hover:bg-club-green/20">💰 Plata y 🧺 bolso de este partido</a>
+        </div>
+
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 class="mb-3 font-semibold text-gray-900">Después del partido</h3>
+          <div id="score-area">
+            <div class="flex flex-wrap gap-2">
+              <button onclick="document.getElementById('score-form').classList.remove('hidden'); document.getElementById('score-toggle').classList.add('hidden');" id="score-toggle" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Marcar como jugado</button>
+              <button onclick="cancelMatch('${match.id}')" class="btn rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Cancelar partido</button>
             </div>
-            <p class="font-bold ${color}">${v.puntaje}%</p>
-          </div>`;
-        }).join("");
-  } catch(e) {}
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ADMIN RESEÑAS
-// ═══════════════════════════════════════════════════════════════
-async function renderAdminResenas() {
-  const mes = mesActual();
-  const app = document.getElementById("app");
-
-  // Cargar reseñas actuales
-  let resMap = {};
-  try {
-    const snap = await getDocs(query(collection(db,"resenas"), where("mes","==",mes)));
-    snap.forEach(d => { const v = d.data(); resMap[v.fuente] = v; });
-  } catch(e) {}
-
-  const fuentes = [
-    { k:"google",      label:"Google",                icon:"🔍" },
-    { k:"pedidosya_h", label:"PedidosYa Hamburguesería", icon:"🍔" },
-    { k:"pedidosya_c", label:"PedidosYa Cafetería",   icon:"☕" },
-    { k:"salon",       label:"Salón",                 icon:"🪑" },
-  ];
-
-  app.innerHTML = topbar("Cargar reseñas", true) + `
-  <div class="fade-up px-4 pt-4 pb-24 space-y-4">
-    <p class="text-xs text-gray-400 font-medium uppercase tracking-wider">${mesLabel(mes)}</p>
-
-    ${fuentes.map(f => {
-      const v = resMap[f.k];
-      return `
-      <div class="bg-white rounded-xl p-4">
-        <div class="flex items-center gap-3 mb-3">
-          <span class="text-2xl">${f.icon}</span>
-          <p class="font-semibold text-sm text-gray-800">${f.label}</p>
-          ${v ? `<span class="ml-auto text-xs text-gray-400">Actual: ${parseFloat(v.puntaje).toFixed(1)}</span>` : ""}
-        </div>
-        <div class="flex items-center gap-3 mb-3">
-          <input type="number" min="1" max="5" step="0.1"
-                 value="${v ? parseFloat(v.puntaje).toFixed(1) : ""}"
-                 placeholder="Ej: 4.6"
-                 id="res-input-${f.k}"
-                 class="w-28 text-center text-lg font-bold"
-                 onchange="setResena('${f.k}','${mes}',parseFloat(this.value))"
-                 oninput="actualizarStars('${f.k}',this.value)" />
-          <div>
-            <div class="text-xl" id="res-stars-${f.k}">${starsHtml(v ? v.puntaje : 0)}</div>
-            <p class="text-xs text-gray-400">entre 1.0 y 5.0</p>
+            <div id="score-form" class="hidden mt-3 space-y-3">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-600">Trébol FC</span>
+                <input id="our-score" type="number" min="0" class="w-16 rounded-lg border border-gray-300 px-2 py-1 text-center text-sm" />
+                <span class="text-sm text-gray-400">vs</span>
+                <input id="their-score" type="number" min="0" class="w-16 rounded-lg border border-gray-300 px-2 py-1 text-center text-sm" />
+                <span class="text-sm text-gray-600">Rival</span>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="markPlayed('${match.id}', document.getElementById('our-score').value, document.getElementById('their-score').value)" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Guardar resultado</button>
+                <button onclick="document.getElementById('score-form').classList.add('hidden'); document.getElementById('score-toggle').classList.remove('hidden');" class="btn rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Volver</button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>`;
-    }).join("")}
+      ` : ""}
 
-    <div class="bg-gray-50 rounded-xl p-4 text-xs text-gray-500">
-      Los puntajes se guardan automáticamente al hacer clic. Se pueden actualizar cuantas veces quieras durante el mes.
+      ${state.recentMatches.length > 0 ? `
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 class="mb-3 font-semibold text-gray-900">Partidos recientes</h3>
+          <ul class="space-y-1.5">
+            ${state.recentMatches.map((m) => `
+              <li class="flex items-center justify-between text-sm">
+                <span class="text-gray-700">vs ${escapeHtml(m.opponent)} · ${fmtShort.format(tsToDate(m.date))}</span>
+                <span class="flex items-center gap-3">
+                  <span class="font-medium text-gray-900">${matchScoreLabel(m)}</span>
+                  ${m.status === "JUGADO" ? `<a href="#/admin/partido/${m.id}" class="text-xs text-club-green underline underline-offset-2">Goles y tarjetas</a>` : ""}
+                  <button onclick="deleteMatch('${m.id}')" class="text-xs text-red-600 hover:underline">Borrar</button>
+                </span>
+              </li>
+            `).join("")}
+          </ul>
+        </div>
+      ` : ""}
     </div>
-  </div>`;
+  `;
 }
 
-window.actualizarStars = function(fuente, val) {
-  const stars = document.getElementById(`res-stars-${fuente}`);
-  if (stars) stars.innerHTML = starsHtml(parseFloat(val) || 0);
-};
+function playerOptionsForMatch(matchId) {
+  const votes = state.votesByMatch[matchId] || [];
+  // Igual que en renderDashboard: un voto "Voy" de un jugador ya eliminado
+  // definitivamente queda huérfano, lo ignoramos acá también.
+  const confirmedIds = new Set(votes.filter((v) => v.response === "VOY" && state.playersById[v.id]).map((v) => v.id));
+  const confirmed = votes
+    .filter((v) => v.response === "VOY" && state.playersById[v.id])
+    .map((v) => ({ id: v.id, label: "✓ " + displayName(state.playersById[v.id]) }));
+  const rest = state.players
+    .filter((p) => p.active !== false && !confirmedIds.has(p.id))
+    .map((p) => ({ id: p.id, label: displayName(p) }));
+  return [...confirmed, ...rest];
+}
 
-window.setResena = async function(fuente, mes, puntaje) {
-  if (isNaN(puntaje) || puntaje < 1 || puntaje > 5) {
-    toast("El puntaje debe estar entre 1.0 y 5.0");
+// IDs de los jugadores activos que están (o probablemente estén) presentes
+// en un partido: mismo criterio que usa la sección "✅ Asistencia" (el
+// casillero explícito si ya se tocó, si no el voto "Voy" como aproximación).
+// Se usa para no ofrecer cobrarle a alguien que no fue — asume que ya se
+// llamó a connectDetailListeners(matchId) para este partido (state.detailAttendance
+// corresponde al partido que se está mirando).
+function presentPlayerIdsForMatch(matchId) {
+  const attendanceMap = new Map(state.detailAttendance.map((a) => [a.id, !!a.present]));
+  const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
+  return state.players
+    .filter((p) => p.active !== false)
+    .filter((p) => (attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id)))
+    .map((p) => p.id);
+}
+
+function renderAdminPartidoDetalle(matchId) {
+  const match = state.matches.find((m) => m.id === matchId);
+  if (!match) {
+    document.getElementById("app").innerHTML = `<p class="text-sm text-gray-400">No se encontró el partido.</p>`;
     return;
   }
-  puntaje = Math.round(puntaje * 10) / 10;
-  const docId = `${mes}_${fuente}`;
-  try {
-    await setDoc(doc(db,"resenas",docId), {
-      fuente, mes, puntaje, updatedAt: serverTimestamp()
+  // Si el partido ya no es "el próximo" (ya se jugó), el listener en vivo de
+  // votos sigue apuntando al nuevo próximo partido (si hay uno). Para poder
+  // armar la lista de jugadores de este partido pasado, pedimos sus votos
+  // una sola vez (no hace falta que sea en vivo, ya se jugó).
+  if (!state.votesByMatch[matchId]) {
+    getDocs(collection(db, "matches", matchId, "votes")).then((snap) => {
+      state.votesByMatch[matchId] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      route();
     });
-    toast(`${puntaje.toFixed(1)} ★ guardado ✓`);
-    actualizarStars(fuente, puntaje);
-  } catch(e) {
-    toast("Error al guardar");
   }
-};
+  connectDetailListeners(matchId);
 
-// ── INIT ─────────────────────────────────────────────────────────────────
-window.addEventListener("hashchange", () => {
-  const view = location.hash.slice(1);
-  if (view) route(view);
-});
+  const playerOptions = playerOptionsForMatch(matchId);
+  const goals = state.detailGoals;
+  const cards = state.detailCards;
 
+  // Para marcar quién estuvo de verdad: cada jugador que ya se tocó tiene
+  // su propio documento explícito (present: true/false) en "attendance".
+  // El que todavía no se tocó arranca marcado según si había confirmado
+  // "Voy" (para no partir de cero) — el admin destilda a los que dijeron
+  // que iban y faltaron, y tilda a los que fueron sin haber confirmado.
+  // Al ser por-jugador, tocar un casillero no afecta a los demás.
+  const attendanceMap = new Map(state.detailAttendance.map((a) => [a.id, !!a.present]));
+  const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
+  const activePlayers = state.players.filter((p) => p.active !== false);
+  const eligibleVoterCount = activePlayers.filter((p) => (attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id))).length;
+  // La plata solo se le cobra a quien fue: se arma con el mismo criterio
+  // que "✅ Asistencia" (present explícito, o el voto "Voy" como
+  // aproximación mientras nadie tocó su casillero) — así, si Lucas marca
+  // primero quién asistió, abajo en "Plata del partido" solo aparecen esos.
+  const presentIdsSet = new Set(presentPlayerIdsForMatch(matchId));
+  const presentPlayers = activePlayers.filter((p) => presentIdsSet.has(p.id));
+  const paymentsMap = new Map(state.detailPayments.map((p) => [p.id, p.amount]));
+  const guests = state.detailGuests;
+  const paymentsTotal = computeTotalRecaudado();
+
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">vs ${escapeHtml(match.opponent)}</h1>
+        <p class="text-sm text-gray-500">
+          ${fmtLong.format(tsToDate(match.date))}
+          ${match.status === "JUGADO" ? ` · Resultado: ${match.ourScore} - ${match.theirScore}` : ""}
+        </p>
+        ${match.status === "JUGADO" ? `<div class="mt-1"><button onclick="revertMatch('${match.id}')" class="text-xs text-red-600 hover:underline">Deshacer resultado (volver a Programado)</button></div>` : ""}
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-1 font-semibold text-gray-900">✅ Asistencia</h3>
+        <p class="mb-3 text-xs text-gray-400">Quién estuvo de verdad en la cancha (puede ser distinto de quién había confirmado "Voy"). Se guarda solo, al tocar cada casillero.</p>
+        ${activePlayers.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>` : `
+          <ul class="space-y-1.5">
+            ${activePlayers.map((p) => {
+              const checked = attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id);
+              return `
+                <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                  <span class="text-gray-800">${displayNameWithCaptain(p)}</span>
+                  <input type="checkbox" ${checked ? "checked" : ""} onchange="toggleAttendance('${matchId}','${p.id}', this.checked)" class="h-5 w-5 rounded border-gray-300 text-club-green focus:ring-club-green" />
+                </li>
+              `;
+            }).join("")}
+          </ul>
+        `}
+        ${guests.length > 0 ? `
+          <ul class="mt-2 space-y-1.5 border-t border-dashed border-gray-200 pt-2">
+            ${guests.map((g) => `
+              <li class="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-sm">
+                <span class="text-gray-800">🙋 ${escapeHtml(g.name)} <span class="text-xs font-normal text-gray-400">(invitado)</span></span>
+                <button onclick="removeGuest('${matchId}','${g.id}')" class="text-xs text-red-600 hover:underline">Quitar</button>
+              </li>
+            `).join("")}
+          </ul>
+        ` : ""}
+        <form onsubmit="event.preventDefault(); addGuest('${matchId}', document.getElementById('guest-name-${matchId}').value); return false;" class="mt-3 flex items-center gap-2 border-t border-dashed border-gray-200 pt-3">
+          <input id="guest-name-${matchId}" placeholder="🙋 Nombre de un invitado suelto (no va al plantel)" required class="flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+          <button type="submit" class="btn shrink-0 rounded-lg bg-club-green/10 px-3 py-1.5 text-xs font-semibold text-club-green hover:bg-club-green/20">Agregar</button>
+        </form>
+      </div>
+
+      <div id="payments-card" class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-1 font-semibold text-gray-900">💰 Plata del partido</h3>
+        <p class="mb-3 text-xs text-gray-400">Cuánto pagó cada uno de los que asistieron (marcá primero en "✅ Asistencia" quién estuvo, así solo te aparecen esos acá para cobrarles) — incluye a los invitados sueltos que hayas cargado ahí. Este detalle solo lo ven los admins; el total recaudado sí es público y lo ve todo el equipo.</p>
+        ${presentPlayers.length === 0 && guests.length === 0 ? `
+          <p class="text-sm text-gray-400">Todavía no hay nadie marcado como presente. Tildá a los que fueron en "✅ Asistencia" arriba y van a aparecer acá para cobrarles.</p>
+        ` : `
+          <div class="mb-3 flex flex-wrap items-center gap-2">
+            <input id="payment-suggested-${matchId}" type="number" min="0" step="1" placeholder="Cuota" class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+            <button onclick="applySuggestedPayment('${matchId}', document.getElementById('payment-suggested-${matchId}').value)" class="text-xs text-club-green hover:underline">Aplicar a todos los presentes</button>
+          </div>
+          <ul class="space-y-1.5">
+            ${presentPlayers.map((p) => `
+              <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                <span class="text-gray-800">${displayNameWithCaptain(p)}</span>
+                <span class="flex items-center gap-1 text-gray-500">
+                  $<input type="number" min="0" step="1" value="${paymentsMap.has(p.id) ? paymentsMap.get(p.id) : ""}" placeholder="0" onchange="setPayment('${matchId}','${p.id}', this.value)" class="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm text-right" />
+                </span>
+              </li>
+            `).join("")}
+            ${guests.map((g) => `
+              <li class="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-sm">
+                <span class="text-gray-800">🙋 ${escapeHtml(g.name)} <span class="text-xs font-normal text-gray-400">(invitado)</span></span>
+                <span class="flex items-center gap-1 text-gray-500">
+                  $<input type="number" min="0" step="1" value="${g.amount != null ? g.amount : ""}" placeholder="0" onchange="setGuestPayment('${matchId}','${g.id}', this.value)" class="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm text-right" />
+                </span>
+              </li>
+            `).join("")}
+          </ul>
+        `}
+        <p id="payments-total" class="mt-3 text-sm font-semibold text-gray-900">Total recaudado: $${paymentsTotal}</p>
+      </div>
+
+      <div id="bolso-card" class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-1 font-semibold text-gray-900">🧺 Bolso de lavado</h3>
+        <p class="mb-3 text-xs text-gray-400">Quién se lleva el bolso a lavar esta semana.</p>
+        <select onchange="setBolso('${matchId}', this.value)" class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+          <option value="">Sin asignar</option>
+          ${playerOptions.map((p) => `<option value="${p.id}" ${match.bolsoPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+        </select>
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-1 font-semibold text-gray-900">🏅 Figura del partido</h3>
+        ${match.motmVotingOpen ? `
+          <p class="mb-3 text-xs text-gray-400">Votación abierta para los jugadores que estuvieron en la cancha. El resultado no se ve hasta que la cierres (ni siquiera acá).</p>
+          <p class="mb-3 text-sm text-gray-700">${state.detailMotmVotes.length} de ${eligibleVoterCount} ya votaron.</p>
+          <button onclick="closeMotmVoting('${matchId}')" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Cerrar votación y revelar</button>
+        ` : match.motmPlayerId ? `
+          <p class="mb-3 text-sm text-gray-700">${displayNameWithCaptain(state.playersById[match.motmPlayerId])}${state.detailMotmVotes.length > 0 ? ` <span class="text-xs text-gray-400">(elegida por votación, ${state.detailMotmVotes.length} votos)</span>` : ""}</p>
+          <div class="flex flex-wrap items-center gap-3">
+            <button onclick="openMotmVoting('${matchId}')" class="text-xs text-club-green hover:underline">Reabrir votación</button>
+            <details class="inline-block">
+              <summary class="cursor-pointer text-xs text-gray-500 hover:underline">Elegir manualmente</summary>
+              <select onchange="setMotm('${matchId}', this.value)" class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+                <option value="">Sin elegir</option>
+                ${playerOptions.map((p) => `<option value="${p.id}" ${match.motmPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+              </select>
+            </details>
+          </div>
+        ` : `
+          <p class="mb-3 text-xs text-gray-400">Dejá que los jugadores que estuvieron en la cancha elijan la figura entre ellos.</p>
+          <div class="flex flex-wrap items-center gap-3">
+            <button onclick="openMotmVoting('${matchId}')" class="btn rounded-lg bg-club-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Abrir votación a los jugadores</button>
+            <details class="inline-block">
+              <summary class="cursor-pointer text-xs text-gray-500 hover:underline">o elegir manualmente</summary>
+              <select onchange="setMotm('${matchId}', this.value)" class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+                <option value="">Sin elegir</option>
+                ${playerOptions.map((p) => `<option value="${p.id}" ${match.motmPlayerId === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+              </select>
+            </details>
+          </div>
+        `}
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">Goles</h3>
+        <div class="mb-4">
+          ${goals.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay goles cargados.</p>` : `
+            <ul class="space-y-1.5">
+              ${goals.map((g) => `
+                <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                  <span>⚽ ${displayName(state.playersById[g.scorerId])}${g.assistId ? ` <span class="text-gray-400">(asistencia de ${displayName(state.playersById[g.assistId])})</span>` : ""}</span>
+                  <button onclick="deleteGoal('${matchId}','${g.id}')" class="text-xs text-red-600 hover:underline">Quitar</button>
+                </li>
+              `).join("")}
+            </ul>
+          `}
+        </div>
+        <form onsubmit="event.preventDefault(); addGoal('${matchId}', document.getElementById('goal-scorer').value, document.getElementById('goal-assist').value); this.reset(); return false;" class="grid grid-cols-2 gap-2">
+          <select id="goal-scorer" required class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="">¿Quién hizo el gol?</option>
+            ${playerOptions.map((p) => `<option value="${p.id}">${p.label}</option>`).join("")}
+          </select>
+          <select id="goal-assist" class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="">Asistencia (opcional)</option>
+            ${playerOptions.map((p) => `<option value="${p.id}">${p.label}</option>`).join("")}
+          </select>
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-3 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar gol</button>
+        </form>
+      </div>
+
+      <div class="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 class="mb-3 font-semibold text-gray-900">Tarjetas</h3>
+        <div class="mb-4">
+          ${cards.length === 0 ? `<p class="text-sm text-gray-400">Todavía no hay tarjetas cargadas.</p>` : `
+            <ul class="space-y-1.5">
+              ${cards.map((c) => `
+                <li class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                  <span>${c.type === "AMARILLA" ? "🟨" : "🟥"} ${displayName(state.playersById[c.playerId])}</span>
+                  <button onclick="deleteCard('${matchId}','${c.id}')" class="text-xs text-red-600 hover:underline">Quitar</button>
+                </li>
+              `).join("")}
+            </ul>
+          `}
+        </div>
+        <form onsubmit="event.preventDefault(); addCard('${matchId}', document.getElementById('card-player').value, document.getElementById('card-type').value); this.reset(); return false;" class="grid grid-cols-2 gap-2">
+          <select id="card-player" required class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="">Jugador</option>
+            ${playerOptions.map((p) => `<option value="${p.id}">${p.label}</option>`).join("")}
+          </select>
+          <select id="card-type" required class="col-span-2 rounded-lg border border-gray-300 px-2 py-2 text-sm sm:col-span-1">
+            <option value="AMARILLA">🟨 Amarilla</option>
+            <option value="ROJA">🟥 Roja</option>
+          </select>
+          <button type="submit" class="btn col-span-2 rounded-lg bg-club-green px-3 py-2 text-sm font-semibold text-white hover:opacity-90">Agregar tarjeta</button>
+        </form>
+      </div>
+
+      ${commentsWallCard(matchId, state.detailComments, "Comentarios")}
+    </div>
+  `;
+}
+
+// La figura del partido vive como campo en el propio documento del
+// partido (matches.motmPlayerId), y los partidos ya están siempre en
+// memoria por el listener en vivo — no hace falta pedirle nada más a
+// Firestore para armar este ranking.
+function motmRanking() {
+  const counts = new Map();
+  for (const m of state.matches) {
+    if (m.status !== "JUGADO" || !m.motmPlayerId) continue;
+    const entry = counts.get(m.motmPlayerId) || { id: m.motmPlayerId, count: 0 };
+    entry.count += 1;
+    counts.set(m.motmPlayerId, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
+// Ranking de lavado del bolso: mismo mecanismo que la figura del partido
+// (campo en el propio documento del partido, matches.bolsoPlayerId).
+function bolsoRanking() {
+  const counts = new Map();
+  for (const m of state.matches) {
+    if (m.status !== "JUGADO" || !m.bolsoPlayerId) continue;
+    const entry = counts.get(m.bolsoPlayerId) || { id: m.bolsoPlayerId, count: 0 };
+    entry.count += 1;
+    counts.set(m.bolsoPlayerId, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
+function renderEstadisticas() {
+  if (!state.stats && !state.statsLoading && !state.statsError) loadStats();
+  const s = state.stats;
+  const capitan = state.players.find((p) => p.isCaptain);
+  const tab = state.statsTab === "historicas" ? "historicas" : "torneo";
+
+  const tabButton = (key, label) => `
+    <button onclick="setStatsTab('${key}')" class="btn flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
+      tab === key ? "bg-club-green text-white shadow-sm" : "bg-white text-gray-500 ring-1 ring-gray-200 hover:bg-gray-50"
+    }">${label}</button>
+  `;
+
+  const torneoView = `
+    <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
+      <div class="flex items-center justify-between bg-club-red/5 px-5 py-3">
+        <div>
+          <h2 class="font-semibold text-gray-900">📊 Tabla de posiciones</h2>
+          <p class="text-xs text-gray-400">${escapeHtml(TORNEO_NOMBRE)} — Liga Vasco Germana</p>
+        </div>
+        ${state.isAdmin ? `
+          <button onclick="refreshStandings()" ${state.standingsRefreshing ? "disabled" : ""} class="btn rounded-full bg-club-red/10 px-3 py-1.5 text-xs font-semibold text-club-red hover:bg-club-red/20 disabled:opacity-50">
+            ${state.standingsRefreshing ? "Actualizando…" : "Actualizar tabla"}
+          </button>
+        ` : ""}
+      </div>
+      <div class="p-5">
+      ${!state.standings || !state.standings.rows || state.standings.rows.length === 0 ? `
+        <p class="text-sm text-gray-400">
+          Todavía no se cargó la tabla de la liga.
+          ${state.isAdmin ? " Tocá \"Actualizar tabla\" para traerla." : ""}
+        </p>
+      ` : `
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-gray-500">
+                <th class="py-1 pr-2">#</th><th class="py-1 pr-2">Equipo</th>
+                <th class="py-1 px-1 text-center">Pts</th><th class="py-1 px-1 text-center">PJ</th>
+                <th class="py-1 px-1 text-center">DG</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${state.standings.rows.map((r) => `
+                <tr class="${/klee/i.test(r.team) ? "bg-club-green/5 font-semibold text-club-green" : "text-gray-800"}">
+                  <td class="py-1.5 pr-2">${rankBadge(r.pos)}</td>
+                  <td class="py-1.5 pr-2">${escapeHtml(r.team)}</td>
+                  <td class="py-1.5 px-1 text-center">${r.pts}</td>
+                  <td class="py-1.5 px-1 text-center">${r.pj}</td>
+                  <td class="py-1.5 px-1 text-center">${r.dg}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+        <p class="mt-2 text-xs text-gray-400">
+          Última actualización: ${state.standings.fetchedAt ? fmtShort.format(tsToDate(state.standings.fetchedAt)) : "?"}
+        </p>
+      `}
+      </div>
+    </section>
+
+    <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
+      <div class="bg-club-red/5 px-5 py-3">
+        <h2 class="font-semibold text-gray-900">⚽ Goleadores de la liga</h2>
+        <p class="text-xs text-gray-400">${escapeHtml(TORNEO_NOMBRE)} — se actualiza junto con la tabla de posiciones</p>
+      </div>
+      <div class="p-5">
+      ${!state.standings || !state.standings.scorers || state.standings.scorers.length === 0 ? `
+        <p class="text-sm text-gray-400">
+          Todavía no se cargaron los goleadores de la liga.
+          ${state.isAdmin ? " Tocá \"Actualizar tabla\" arriba para traerlos." : ""}
+        </p>
+      ` : `
+        <ol class="space-y-2">
+          ${state.standings.scorers.map((g) => `
+            <li class="flex items-center justify-between text-sm ${/klee/i.test(g.team) ? "font-semibold text-club-green" : "text-gray-800"}">
+              <span class="flex items-center gap-2">${rankBadge(g.pos)} ${escapeHtml(g.name)} <span class="text-xs font-normal text-gray-400">(${escapeHtml(g.team)})</span></span>
+              <span class="font-medium">${g.goals}</span>
+            </li>
+          `).join("")}
+        </ol>
+      `}
+      </div>
+    </section>
+  `;
+
+  const historicasView = `
+    <div>
+      <p class="text-xs text-gray-400">Se van acumulando partido a partido, no dependen del torneo actual.</p>
+      ${capitan ? `<p class="mt-1 flex items-center gap-1.5 text-sm text-gray-600">${captainBadge()} Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
+    </div>
+
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+      <h2 class="font-semibold text-gray-900">👥 Todos los jugadores</h2>
+      <p class="mb-3 text-xs text-gray-400">Asistencia = % de los partidos jugados por el equipo a los que fue cada uno (asistencia real cargada por un admin, o "Voy" confirmado para los partidos donde todavía no se cargó), con la cantidad exacta debajo. 🏅 = veces elegido figura del partido. 🧺 = veces que se llevó el bolso a lavar.</p>
+      ${state.statsError ? `
+        <p class="text-sm text-red-600">No se pudieron cargar las estadísticas: ${escapeHtml(state.statsError)}</p>
+        <p class="mt-1 text-xs text-gray-400">Si el mensaje dice "Missing or insufficient permissions", probablemente falta publicar el <code>firestore.rules</code> actualizado en la consola de Firebase (pestaña Reglas).</p>
+        <button onclick="retryLoadStats()" class="mt-2 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200">Reintentar</button>
+      ` : !s ? `<p class="text-sm text-gray-400">Cargando…</p>` : (s.porJugador.length === 0 ? `
+        <p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>
+      ` : `
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-gray-500">
+                <th class="py-1 pr-2">Jugador</th>
+                <th class="py-1 px-1 text-center">Asistencia</th>
+                <th class="py-1 px-1 text-center">🏅</th>
+                <th class="py-1 px-1 text-center">🧺</th>
+                <th class="py-1 px-1 text-center">⚽</th>
+                <th class="py-1 px-1 text-center">👟</th>
+                <th class="py-1 px-1 text-center">🟨</th>
+                <th class="py-1 px-1 text-center">🟥</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${s.porJugador.map((row) => `
+                <tr class="text-gray-800">
+                  <td class="py-1.5 pr-2">${displayNameWithCaptain(state.playersById[row.id])}</td>
+                  <td class="py-1.5 px-1 text-center">
+                    ${row.presenciaPct === null ? "-" : `${row.presenciaPct}%`}
+                    <span class="block text-[10px] leading-tight text-gray-400">${row.presencias}/${row.totalJugados}</span>
+                  </td>
+                  <td class="py-1.5 px-1 text-center">${row.figuras}</td>
+                  <td class="py-1.5 px-1 text-center">${row.bolsos}</td>
+                  <td class="py-1.5 px-1 text-center">${row.goles}</td>
+                  <td class="py-1.5 px-1 text-center">${row.asistencias}</td>
+                  <td class="py-1.5 px-1 text-center">${row.amarillas}</td>
+                  <td class="py-1.5 px-1 text-center">${row.rojas}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `)}
+    </section>
+
+    ${state.isAdmin ? `
+      <details class="rounded-2xl bg-white p-4 text-xs text-gray-500 shadow-sm ring-1 ring-gray-100">
+        <summary class="cursor-pointer select-none font-medium text-gray-600">🧹 ¿Los números no cierran?</summary>
+        <p class="mt-2">
+          Si alguna vez se borró un partido de prueba y sus datos quedaron sumando presencias,
+          goles, tarjetas o figuras de más en esta tabla, tocá este botón: busca datos de
+          partidos que ya no existen y los borra. No toca los partidos actuales.
+        </p>
+        <button onclick="cleanOrphanedMatchData()" class="btn mt-2 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200">
+          Limpiar datos de partidos borrados
+        </button>
+      </details>
+    ` : ""}
+  `;
+
+  document.getElementById("app").innerHTML = `
+    <div class="space-y-6">
+      <div>
+        <h1 class="font-display text-2xl font-semibold uppercase tracking-wide text-gray-900">Estadísticas</h1>
+      </div>
+
+      <div class="flex gap-2">
+        ${tabButton("torneo", "🏆 Torneo actual")}
+        ${tabButton("historicas", "📈 Históricas")}
+      </div>
+
+      ${tab === "torneo" ? torneoView : historicasView}
+    </div>
+  `;
+}
+
+// Fondo con fotos del equipo (carpeta fotos/), en blanco y negro y
+// atenuadas — van cambiando de a una cada tanto con un fundido suave.
+// Arranca con un pequeño retraso y carga las fotos de a una (nunca todas
+// juntas) para no competir con lo importante durante la carga inicial.
+const BG_PHOTOS = [
+  "/fotos/equipo-1.jpg", "/fotos/equipo-2.jpg", "/fotos/equipo-3.jpg",
+  "/fotos/equipo-4.jpg", "/fotos/equipo-5.jpg", "/fotos/equipo-6.jpg",
+  "/fotos/equipo-7.jpg",
+];
+function startBgSlideshow() {
+  const container = document.getElementById("bg-slideshow");
+  if (!container || BG_PHOTOS.length === 0) return;
+  const imgs = BG_PHOTOS.map(() => {
+    const img = document.createElement("img");
+    img.alt = "";
+    container.appendChild(img);
+    return img;
+  });
+  function load(i) {
+    if (!imgs[i].src) imgs[i].src = BG_PHOTOS[i];
+  }
+  let current = 0;
+  load(0);
+  imgs[0].addEventListener("load", () => imgs[0].classList.add("active"), { once: true });
+  load(1 % imgs.length);
+  if (imgs.length > 1) {
+    setInterval(() => {
+      const next = (current + 1) % imgs.length;
+      load(next);
+      imgs[current].classList.remove("active");
+      imgs[next].classList.add("active");
+      current = next;
+      load((next + 1) % imgs.length);
+    }, 9000);
+  }
+}
+setTimeout(startBgSlideshow, 1500);
+
+// Registrar el service worker (PWA) y arrancar el router.
+//
+// Antes, para ver una actualización de la app había que cerrar la pestaña y
+// abrir otra: el navegador solo revisa solo si hay una versión nueva del
+// service worker al navegar a la página, así que alguien que dejaba la
+// pestaña abierta (por ejemplo, todo el domingo mirando quién confirmó)
+// nunca se enteraba. Ahora, además de arreglar el caché de sw.js (ver ese
+// archivo), se revisa solo cada un rato mientras la pestaña sigue abierta,
+// y en cuanto se detecta y activa una versión nueva, la página se recarga
+// sola para mostrarla — sin que nadie tenga que hacer nada.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").then((reg) => {
+      setInterval(() => reg.update(), 60 * 1000);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reg.update();
+      });
+    }).catch((e) => console.error(e));
+  });
+
+  // Si justo estás escribiendo algo (por ejemplo, cargando la plata de un
+  // partido) cuando se activa la versión nueva, esperamos a que termines de
+  // tocar ese campo antes de recargar, para no perderte lo que estabas por
+  // guardar.
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    const active = document.activeElement;
+    const isTyping = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+    if (isTyping) {
+      active.addEventListener("blur", () => location.reload(), { once: true });
+    } else {
+      location.reload();
+    }
+  });
+}
+route();
 </script>
 </body>
 </html>
