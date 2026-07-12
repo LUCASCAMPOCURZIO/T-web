@@ -478,19 +478,18 @@ function connectDetailListeners(matchId) {
 // pagaron los invitados sueltos (state.detailGuests) — ambos listeners de
 // más arriba mantienen esas dos listas siempre al día con Firestore.
 function sumPaymentsAndGuests() {
-  // El total tiene que ser siempre exactamente lo que se ve sumado en las
-  // filas de "💰 Plata del partido" (jugadores presentes que no sean DT,
-  // más invitados) — ni un peso de más. Por eso se descartan acá dos casos
-  // que no tienen fila visible pero que, si no se excluyeran, seguirían
-  // sumando igual: (a) un pago que quedó huérfano porque el jugador se
-  // eliminó definitivamente después (mismo caso que pasaba con los votos
-  // "Voy"), y (b) un pago viejo a nombre del DT, de antes de que se lo
-  // sacara de esta lista.
-  return state.detailPayments.reduce((sum, p) => {
-    const player = state.playersById[p.id];
-    if (!player || player.isDT) return sum;
-    return sum + (p.amount || 0);
-  }, 0) + state.detailGuests.reduce((sum, g) => sum + (g.amount || 0), 0);
+  // El total tiene que ser SIEMPRE exactamente lo que se ve sumado en las
+  // filas de "💰 Plata del partido" — ni un peso de más ni de menos. Por
+  // eso se filtra a los pagos de jugadores que siguen figurando como
+  // presentes ahora mismo (presentPlayerIdsForMatch: activos, no-DT, y
+  // marcados presentes) — si alguien queda destildado de "✅ Asistencia"
+  // después de haber tenido un pago cargado (por corregir un error, por
+  // ejemplo), o si se lo elimina definitivamente del plantel, su pago viejo
+  // deja de sumar en vez de quedar contando para siempre sin que se vea en
+  // ningún lado de dónde sale esa plata.
+  const presentIds = new Set(presentPlayerIdsForMatch(state.detailMatchId));
+  return state.detailPayments.reduce((sum, p) => sum + (presentIds.has(p.id) ? (p.amount || 0) : 0), 0)
+    + state.detailGuests.reduce((sum, g) => sum + (g.amount || 0), 0);
 }
 
 // Recalcula matches.totalRecaudado a partir de esos mismos datos frescos, y
