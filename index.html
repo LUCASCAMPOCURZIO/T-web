@@ -460,6 +460,7 @@ function connectDetailListeners(matchId) {
   // esta pantalla de detalle es admin-only, siempre va a poder.
   unsubDetail.payments = onSnapshot(collection(db, "matches", matchId, "payments"), (snap) => {
     state.detailPayments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    syncTotalRecaudado(matchId);
     route();
   }, (err) => console.error("payments listener:", err));
   // Invitados sueltos de este partido puntual (chicos que vienen a dar una
@@ -468,20 +469,45 @@ function connectDetailListeners(matchId) {
   // Solo un admin puede leerla (ver firestore.rules).
   unsubDetail.guests = onSnapshot(collection(db, "matches", matchId, "guests"), (snap) => {
     state.detailGuests = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    syncTotalRecaudado(matchId);
     route();
   }, (err) => console.error("guests listener:", err));
+}
+
+// Suma lo que pagó cada jugador presente (state.detailPayments) más lo que
+// pagaron los invitados sueltos (state.detailGuests) — ambos listeners de
+// más arriba mantienen esas dos listas siempre al día con Firestore.
+function sumPaymentsAndGuests() {
+  return state.detailPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+    + state.detailGuests.reduce((sum, g) => sum + (g.amount || 0), 0);
+}
+
+// Recalcula matches.totalRecaudado a partir de esos mismos datos frescos, y
+// lo guarda. Se llama SIEMPRE desde los listeners de payments/guests
+// (arriba), nunca desde una acción puntual de guardar un pago — así el
+// total sale siempre de lo que Firestore acaba de confirmar como estado
+// real de la colección, no de una cuenta manual "total anterior - viejo +
+// nuevo" hecha con una copia local que podía estar desactualizada. Ese
+// cálculo manual era la causa de que el total quedara mal si se cargaban
+// varios pagos muy rápido seguido, uno atrás de otro, sin esperar a que
+// cada uno "hiciera ida y vuelta" con el servidor.
+function syncTotalRecaudado(matchId) {
+  const total = sumPaymentsAndGuests();
+  const match = state.matches.find((m) => m.id === matchId);
+  if (match && match.totalRecaudado === total) return; // ya está al día
+  updateDoc(doc(db, "matches", matchId), { totalRecaudado: total })
+    .catch((err) => console.error("syncTotalRecaudado:", err));
 }
 
 async function loadStats() {
   state.statsLoading = true;
   state.statsError = null;
   route();
-  // Se piden las 4 por separado (no con Promise.all) para poder decir
-  // puntualmente cuál de las 4 falló, en vez de un error genérico.
+  // Se piden por separado (no con Promise.all) para poder decir
+  // puntualmente cuál falló, en vez de un error genérico.
   const queries = [
     ["goals", collectionGroup(db, "goals")],
     ["cards", collectionGroup(db, "cards")],
-    ["votes", collectionGroup(db, "votes")],
     ["attendance", collectionGroup(db, "attendance")],
   ];
   const results = await Promise.allSettled(queries.map(([, q]) => getDocs(q)));
@@ -495,7 +521,7 @@ async function loadStats() {
     route();
     return;
   }
-  const [goalsSnap, cardsSnap, votesSnap, attendanceSnap] = results.map((r) => r.value);
+  const [goalsSnap, cardsSnap, attendanceSnap] = results.map((r) => r.value);
   const goleadoresMap = new Map();
   const asistenciasMap = new Map();
   goalsSnap.forEach((d) => {
@@ -516,35 +542,16 @@ async function loadStats() {
     if (c.type === "AMARILLA") entry.amarillas += 1; else entry.rojas += 1;
     tarjetasMap.set(c.playerId, entry);
   });
-  // "Presencias": por cada partido y jugador, preferimos la asistencia real
-  // que carga un admin (más precisa); para los jugadores que en ese partido
-  // puntual todavía no se tocaron, usamos como aproximación si habían
-  // confirmado "Voy". Es por-jugador (no por-partido entero) para que
-  // marcar a uno no le haga perder el dato aproximado a los demás.
-  const matchAttendance = new Map(); // matchId -> Map(playerId -> present bool)
-  attendanceSnap.forEach((d) => {
-    const matchId = d.ref.path.split("/")[1];
-    if (!matchAttendance.has(matchId)) matchAttendance.set(matchId, new Map());
-    matchAttendance.get(matchId).set(d.id, !!d.data().present);
-  });
-  const voyByMatch = new Map(); // matchId -> Set(playerId)
-  const matchIds = new Set(matchAttendance.keys());
-  votesSnap.forEach((d) => {
-    const v = d.data();
-    const matchId = d.ref.path.split("/")[1];
-    matchIds.add(matchId);
-    if (v.response !== "VOY") return;
-    if (!voyByMatch.has(matchId)) voyByMatch.set(matchId, new Set());
-    voyByMatch.get(matchId).add(d.id);
-  });
+  // "Presencias": SOLO la asistencia real que carga un admin a mano (la
+  // lista de "✅ Asistencia" de cada partido). Antes, para los partidos
+  // donde todavía no se había tocado esa lista, se usaba como aproximación
+  // quién había votado "Voy" — pero eso no es confiable (alguien confirma
+  // "Voy" y después no va, o marca "No voy" y termina yendo), así que Lucas
+  // pidió sacar esa aproximación: si un partido no tiene asistencia
+  // cargada, simplemente no suma presencias para nadie en ese partido.
   const presenciasMap = new Map();
-  matchIds.forEach((matchId) => {
-    const explicit = matchAttendance.get(matchId);
-    const voy = voyByMatch.get(matchId);
-    state.players.forEach((p) => {
-      const present = explicit && explicit.has(p.id) ? explicit.get(p.id) : !!(voy && voy.has(p.id));
-      if (present) presenciasMap.set(p.id, (presenciasMap.get(p.id) || 0) + 1);
-    });
+  attendanceSnap.forEach((d) => {
+    if (d.data().present) presenciasMap.set(d.id, (presenciasMap.get(d.id) || 0) + 1);
   });
   // Figura del partido: vive como campo en el propio documento del partido
   // (match.motmPlayerId), que ya está siempre en memoria por el listener en
@@ -560,7 +567,11 @@ async function loadStats() {
   const totalJugados = state.matches.filter((m) => m.status === "JUGADO").length;
   // Tabla completa: una fila por CADA jugador (incluso sin ningún dato
   // todavía), para que se pueda comparar a todo el plantel de un vistazo.
-  const porJugador = state.players.map((p) => {
+  // El cuerpo técnico (isDT) queda afuera: aunque puedan entrar y marcar
+  // asistencia como uno más, Lucas no los quiere mezclados en las
+  // estadísticas de jugadores (queda confuso comparar presencias/goles de
+  // un jugador con las de un DT).
+  const porJugador = state.players.filter((p) => !p.isDT).map((p) => {
     const presencias = presenciasMap.get(p.id) || 0;
     return {
       id: p.id,
@@ -1017,24 +1028,10 @@ window.setBolso = function (matchId, playerId) {
 // (subcolección "guests") — ambas son de solo-lectura-para-admin, así que
 // el total se guarda además como campo público en el propio documento del
 // partido (matches.totalRecaudado) para que todo el equipo lo vea sin
-// necesidad de poder leer el detalle. Los "override" son para poder
-// recalcular con un cambio que todavía no volvió del listener, y que el
-// total se vea al toque en vez de esperar el viaje de ida y vuelta.
-function computeTotalRecaudado(overrides) {
-  overrides = overrides || {};
-  let total = 0;
-  for (const p of state.detailPayments) {
-    if (overrides.playerId && p.id === overrides.playerId) continue;
-    total += p.amount || 0;
-  }
-  if (overrides.playerId) total += overrides.playerAmount || 0;
-  for (const g of state.detailGuests) {
-    if (overrides.guestId && g.id === overrides.guestId) continue;
-    total += g.amount || 0;
-  }
-  if (overrides.guestId) total += overrides.guestAmount || 0;
-  return total;
-}
+// necesidad de poder leer el detalle. El total en sí lo recalculan y
+// guardan los listeners de payments/guests (más arriba, syncTotalRecaudado)
+// apenas cambia cualquiera de las dos colecciones — acá solo escribimos el
+// pago puntual, no hace falta (ni conviene) tocar el total desde acá.
 
 // Plata de la cancha: cuánto pagó cada jugador ese partido.
 window.setPayment = function (matchId, playerId, amountStr) {
@@ -1047,8 +1044,6 @@ window.setPayment = function (matchId, playerId, amountStr) {
     } else {
       await setDoc(doc(db, "matches", matchId, "payments", playerId), { amount });
     }
-    const total = computeTotalRecaudado({ playerId, playerAmount: amount });
-    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: total });
   });
 };
 
@@ -1072,7 +1067,6 @@ window.applySuggestedPayment = function (matchId, amountStr) {
       batch.update(doc(db, "matches", matchId, "guests", id), { amount });
     }
     await batch.commit();
-    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: amount * (presentIds.length + guestIds.length) });
     showToast("Cuota aplicada a los presentes.");
   });
 };
@@ -1096,8 +1090,6 @@ window.addGuest = function (matchId, name) {
 window.removeGuest = function (matchId, guestId) {
   runAction(async () => {
     await deleteDoc(doc(db, "matches", matchId, "guests", guestId));
-    const total = computeTotalRecaudado({ guestId, guestAmount: 0 });
-    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: total });
   });
 };
 
@@ -1107,8 +1099,6 @@ window.setGuestPayment = function (matchId, guestId, amountStr) {
     const amount = trimmed === "" ? null : Number(trimmed);
     if (amount !== null && (isNaN(amount) || amount < 0)) throw new Error("Ese monto no es válido.");
     await updateDoc(doc(db, "matches", matchId, "guests", guestId), { amount });
-    const total = computeTotalRecaudado({ guestId, guestAmount: amount });
-    await updateDoc(doc(db, "matches", matchId), { totalRecaudado: total });
   });
 };
 
@@ -1782,7 +1772,7 @@ function presentPlayerIdsForMatch(matchId) {
   const attendanceMap = new Map(state.detailAttendance.map((a) => [a.id, !!a.present]));
   const voyIds = new Set((state.votesByMatch[matchId] || []).filter((v) => v.response === "VOY").map((v) => v.id));
   return state.players
-    .filter((p) => p.active !== false)
+    .filter((p) => p.active !== false && !p.isDT)
     .filter((p) => (attendanceMap.has(p.id) ? attendanceMap.get(p.id) : voyIds.has(p.id)))
     .map((p) => p.id);
 }
@@ -1827,7 +1817,7 @@ function renderAdminPartidoDetalle(matchId) {
   const presentPlayers = activePlayers.filter((p) => presentIdsSet.has(p.id));
   const paymentsMap = new Map(state.detailPayments.map((p) => [p.id, p.amount]));
   const guests = state.detailGuests;
-  const paymentsTotal = computeTotalRecaudado();
+  const paymentsTotal = sumPaymentsAndGuests();
 
   document.getElementById("app").innerHTML = `
     <div class="space-y-6">
@@ -2127,7 +2117,7 @@ function renderEstadisticas() {
 
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
       <h2 class="font-semibold text-gray-900">👥 Todos los jugadores</h2>
-      <p class="mb-3 text-xs text-gray-400">Asistencia = % de los partidos jugados por el equipo a los que fue cada uno (asistencia real cargada por un admin, o "Voy" confirmado para los partidos donde todavía no se cargó), con la cantidad exacta debajo. 🏅 = veces elegido figura del partido. 🧺 = veces que se llevó el bolso a lavar.</p>
+      <p class="mb-3 text-xs text-gray-400">Asistencia = % de los partidos jugados por el equipo a los que fue cada uno, según la lista de "✅ Asistencia" que carga un admin en cada partido (no el voto "Voy" de antes de jugar), con la cantidad exacta debajo. No incluye al cuerpo técnico. 🏅 = veces elegido figura del partido. 🧺 = veces que se llevó el bolso a lavar.</p>
       ${state.statsError ? `
         <p class="text-sm text-red-600">No se pudieron cargar las estadísticas: ${escapeHtml(state.statsError)}</p>
         <p class="mt-1 text-xs text-gray-400">Si el mensaje dice "Missing or insufficient permissions", probablemente falta publicar el <code>firestore.rules</code> actualizado en la consola de Firebase (pestaña Reglas).</p>
