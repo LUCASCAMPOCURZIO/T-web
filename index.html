@@ -168,6 +168,20 @@ const auth = getAuth(firebaseApp);
 // servidor) — ver README.md.
 const TORNEO_NOMBRE = "Copa de Oro B4";
 
+// Un partido "pertenece" al torneo que estaba vigente (TORNEO_NOMBRE) el día
+// que se cargó, guardado como campo propio (match.torneoNombre) para que no
+// cambie de torneo retroactivamente si después arranca uno nuevo. Los
+// partidos viejos, de antes de que existiera este campo, no lo tienen
+// guardado — se los trata como si fueran del torneo actual (con
+// "|| TORNEO_NOMBRE"), total en la práctica todos se cargaron durante este
+// mismo torneo que sigue en curso. Así, las estadísticas de "🏆 Torneo
+// actual" se reinician solas apenas cambia esta constante para el próximo
+// torneo (los partidos viejos quedan con el nombre viejo, dejan de
+// contar acá, pero siguen sumando siempre en "📈 Históricas").
+function isCurrentTorneo(m) {
+  return (m.torneoNombre || TORNEO_NOMBRE) === TORNEO_NOMBRE;
+}
+
 // -------------------------------------------------------------------------
 // Utilidades
 // -------------------------------------------------------------------------
@@ -299,7 +313,8 @@ const state = {
   lastPlayedMotmVotes: [], // mis votos de figura del último partido jugado (vista jugador)
   nextMatchComments: [], // muro de comentarios del próximo partido (vista jugador)
   lastPlayedComments: [], // muro de comentarios del último partido jugado (vista jugador)
-  stats: null, // {goleadores, asistencias, tarjetas, porJugador}
+  stats: null, // {goleadores, asistencias, tarjetas, porJugador} de TODOS los partidos (históricas)
+  statsTorneo: null, // misma forma que "stats", pero solo de los partidos del torneo actual
   statsLoading: false,
   statsError: null,
   statsTab: "torneo", // "torneo" | "historicas" — qué mitad de Estadísticas se ve
@@ -532,76 +547,91 @@ async function loadStats() {
     return;
   }
   const [goalsSnap, cardsSnap, attendanceSnap] = results.map((r) => r.value);
-  const goleadoresMap = new Map();
-  const asistenciasMap = new Map();
-  goalsSnap.forEach((d) => {
-    const g = d.data();
-    const scorer = goleadoresMap.get(g.scorerId) || { id: g.scorerId, count: 0 };
-    scorer.count += 1;
-    goleadoresMap.set(g.scorerId, scorer);
-    if (g.assistId) {
-      const assist = asistenciasMap.get(g.assistId) || { id: g.assistId, count: 0 };
-      assist.count += 1;
-      asistenciasMap.set(g.assistId, assist);
-    }
-  });
-  const tarjetasMap = new Map();
-  cardsSnap.forEach((d) => {
-    const c = d.data();
-    const entry = tarjetasMap.get(c.playerId) || { id: c.playerId, amarillas: 0, rojas: 0 };
-    if (c.type === "AMARILLA") entry.amarillas += 1; else entry.rojas += 1;
-    tarjetasMap.set(c.playerId, entry);
-  });
-  // "Presencias": SOLO la asistencia real que carga un admin a mano (la
-  // lista de "✅ Asistencia" de cada partido). Antes, para los partidos
-  // donde todavía no se había tocado esa lista, se usaba como aproximación
-  // quién había votado "Voy" — pero eso no es confiable (alguien confirma
-  // "Voy" y después no va, o marca "No voy" y termina yendo), así que Lucas
-  // pidió sacar esa aproximación: si un partido no tiene asistencia
-  // cargada, simplemente no suma presencias para nadie en ese partido.
-  const presenciasMap = new Map();
-  attendanceSnap.forEach((d) => {
-    if (d.data().present) presenciasMap.set(d.id, (presenciasMap.get(d.id) || 0) + 1);
-  });
-  // Figura del partido: vive como campo en el propio documento del partido
-  // (match.motmPlayerId), que ya está siempre en memoria por el listener en
-  // vivo — no hace falta pedirle nada más a Firestore para este dato.
-  const figurasMap = new Map(motmRanking().map((f) => [f.id, f.count]));
-  // Lavado del bolso: mismo mecanismo (campo en el propio documento del
-  // partido), ya en memoria por el listener en vivo.
-  const bolsosMap = new Map(bolsoRanking().map((b) => [b.id, b.count]));
-  // % de asistencia: sobre el total de partidos que jugó el equipo (no solo
-  // los que tienen asistencia/votos cargados), para que sea un número
-  // comparable entre jugadores independientemente de cuándo se sumaron al
-  // plantel. Si el equipo todavía no jugó ningún partido no hay % posible.
-  const totalJugados = state.matches.filter((m) => m.status === "JUGADO").length;
-  // Tabla completa: una fila por CADA jugador (incluso sin ningún dato
-  // todavía), para que se pueda comparar a todo el plantel de un vistazo.
-  // El cuerpo técnico (isDT) queda afuera: aunque puedan entrar y marcar
-  // asistencia como uno más, Lucas no los quiere mezclados en las
-  // estadísticas de jugadores (queda confuso comparar presencias/goles de
-  // un jugador con las de un DT).
-  const porJugador = state.players.filter((p) => !p.isDT).map((p) => {
-    const presencias = presenciasMap.get(p.id) || 0;
+
+  // Cada doc de estas 3 colecciones vive bajo matches/{matchId}/..., así
+  // que alcanza con mirar el path para saber a qué partido pertenece —
+  // hace falta para poder armar la versión "solo este torneo" de abajo.
+  function matchIdOf(d) { return d.ref.path.split("/")[1]; }
+
+  // Arma las estadísticas por jugador para un subconjunto de partidos
+  // (matchFilter recibe el objeto match y devuelve true/false). Se llama
+  // dos veces: una sin filtro (📈 Históricas, de siempre — se van
+  // acumulando partido a partido) y otra solo con los partidos del torneo
+  // actual (🏆 Torneo actual — se reinicia sola en cuanto arranca un
+  // torneo nuevo, ver isCurrentTorneo).
+  function buildStats(matchFilter) {
+    const includedMatchIds = new Set(state.matches.filter(matchFilter).map((m) => m.id));
+    const goleadoresMap = new Map();
+    const asistenciasMap = new Map();
+    goalsSnap.forEach((d) => {
+      if (!includedMatchIds.has(matchIdOf(d))) return;
+      const g = d.data();
+      const scorer = goleadoresMap.get(g.scorerId) || { id: g.scorerId, count: 0 };
+      scorer.count += 1;
+      goleadoresMap.set(g.scorerId, scorer);
+      if (g.assistId) {
+        const assist = asistenciasMap.get(g.assistId) || { id: g.assistId, count: 0 };
+        assist.count += 1;
+        asistenciasMap.set(g.assistId, assist);
+      }
+    });
+    const tarjetasMap = new Map();
+    cardsSnap.forEach((d) => {
+      if (!includedMatchIds.has(matchIdOf(d))) return;
+      const c = d.data();
+      const entry = tarjetasMap.get(c.playerId) || { id: c.playerId, amarillas: 0, rojas: 0 };
+      if (c.type === "AMARILLA") entry.amarillas += 1; else entry.rojas += 1;
+      tarjetasMap.set(c.playerId, entry);
+    });
+    // "Presencias": SOLO la asistencia real que carga un admin a mano (la
+    // lista de "✅ Asistencia" de cada partido) — no el voto "Voy" de antes
+    // de jugar, que no es confiable (alguien confirma y no va, o marca que
+    // no va y termina yendo). Si un partido no tiene asistencia cargada,
+    // simplemente no suma presencias para nadie en ese partido.
+    const presenciasMap = new Map();
+    attendanceSnap.forEach((d) => {
+      if (!includedMatchIds.has(matchIdOf(d))) return;
+      if (d.data().present) presenciasMap.set(d.id, (presenciasMap.get(d.id) || 0) + 1);
+    });
+    // Figura del partido y bolso de lavado viven como campos en el propio
+    // documento del partido, ya en memoria por el listener en vivo — no
+    // hace falta pedirle nada más a Firestore para estos dos datos.
+    const figurasMap = new Map(motmRanking(matchFilter).map((f) => [f.id, f.count]));
+    const bolsosMap = new Map(bolsoRanking(matchFilter).map((b) => [b.id, b.count]));
+    // % de asistencia: sobre el total de partidos (de este subconjunto) que
+    // jugó el equipo, para que sea comparable entre jugadores
+    // independientemente de cuándo se sumaron al plantel.
+    const totalJugados = state.matches.filter((m) => m.status === "JUGADO" && matchFilter(m)).length;
+    // Tabla completa: una fila por CADA jugador (incluso sin ningún dato
+    // todavía), para poder comparar a todo el plantel de un vistazo. El
+    // cuerpo técnico (isDT) queda afuera: aunque puedan entrar y marcar
+    // asistencia como uno más, Lucas no los quiere mezclados en las
+    // estadísticas de jugadores.
+    const porJugador = state.players.filter((p) => !p.isDT).map((p) => {
+      const presencias = presenciasMap.get(p.id) || 0;
+      return {
+        id: p.id,
+        presencias,
+        totalJugados,
+        presenciaPct: totalJugados > 0 ? Math.round((presencias / totalJugados) * 100) : null,
+        figuras: figurasMap.get(p.id) || 0,
+        bolsos: bolsosMap.get(p.id) || 0,
+        goles: goleadoresMap.get(p.id)?.count || 0,
+        asistencias: asistenciasMap.get(p.id)?.count || 0,
+        amarillas: tarjetasMap.get(p.id)?.amarillas || 0,
+        rojas: tarjetasMap.get(p.id)?.rojas || 0,
+      };
+    }).sort((a, b) => displayName(state.playersById[a.id]).localeCompare(displayName(state.playersById[b.id]), "es"));
     return {
-      id: p.id,
-      presencias,
-      totalJugados,
-      presenciaPct: totalJugados > 0 ? Math.round((presencias / totalJugados) * 100) : null,
-      figuras: figurasMap.get(p.id) || 0,
-      bolsos: bolsosMap.get(p.id) || 0,
-      goles: goleadoresMap.get(p.id)?.count || 0,
-      asistencias: asistenciasMap.get(p.id)?.count || 0,
-      amarillas: tarjetasMap.get(p.id)?.amarillas || 0,
-      rojas: tarjetasMap.get(p.id)?.rojas || 0,
+      goleadores: [...goleadoresMap.values()].sort((a, b) => b.count - a.count),
+      asistencias: [...asistenciasMap.values()].sort((a, b) => b.count - a.count),
+      tarjetas: [...tarjetasMap.values()].sort((a, b) => (b.amarillas + b.rojas) - (a.amarillas + a.rojas)),
+      porJugador,
     };
-  }).sort((a, b) => displayName(state.playersById[a.id]).localeCompare(displayName(state.playersById[b.id]), "es"));
-  state.stats = {
-    goleadores: [...goleadoresMap.values()].sort((a, b) => b.count - a.count),
-    asistencias: [...asistenciasMap.values()].sort((a, b) => b.count - a.count),
-    tarjetas: [...tarjetasMap.values()].sort((a, b) => (b.amarillas + b.rojas) - (a.amarillas + a.rojas)),
-    porJugador,
-  };
+  }
+
+  state.stats = buildStats(() => true);
+  state.statsTorneo = buildStats(isCurrentTorneo);
   state.statsLoading = false;
   route();
 }
@@ -829,6 +859,11 @@ window.createOrUpdateMatch = function (matchId, date, opponent, sede) {
     } else {
       await addDoc(collection(db, "matches"), {
         ...data, status: "PROGRAMADO", ourScore: null, theirScore: null, createdAt: serverTimestamp(),
+        // Queda "marcado" con el torneo vigente al crearlo (ver
+        // isCurrentTorneo) — así, si más adelante arranca un torneo nuevo,
+        // este partido sigue perteneciendo al viejo para las estadísticas
+        // de "Torneo actual", aunque esa constante ya haya cambiado.
+        torneoNombre: TORNEO_NOMBRE,
       });
     }
     showToast("Partido guardado.");
@@ -1759,15 +1794,18 @@ function renderAdminPartido() {
 }
 
 function playerOptionsForMatch(matchId) {
-  const votes = state.votesByMatch[matchId] || [];
-  // Igual que en renderDashboard: un voto "Voy" de un jugador ya eliminado
-  // definitivamente queda huérfano, lo ignoramos acá también.
-  const confirmedIds = new Set(votes.filter((v) => v.response === "VOY" && state.playersById[v.id]).map((v) => v.id));
-  const confirmed = votes
-    .filter((v) => v.response === "VOY" && state.playersById[v.id])
-    .map((v) => ({ id: v.id, label: "✓ " + displayName(state.playersById[v.id]) }));
+  // La referencia para elegir a quién marcarle un gol/tarjeta es la misma
+  // que usa "✅ Asistencia": el casillero explícito de presente si ya se
+  // tocó, y si no se tocó todavía, el voto "Voy" como aproximación. Antes
+  // esto solo miraba los votos, así que alguien que Lucas marcó presente
+  // "a mano" (sin haber confirmado "Voy" durante la semana) no aparecía
+  // arriba con el ✓ — ahora sí figura, sea por voto o por asistencia real.
+  const presentIds = new Set(presentPlayerIdsForMatch(matchId));
+  const confirmed = state.players
+    .filter((p) => p.active !== false && presentIds.has(p.id))
+    .map((p) => ({ id: p.id, label: "✓ " + displayName(p) }));
   const rest = state.players
-    .filter((p) => p.active !== false && !confirmedIds.has(p.id))
+    .filter((p) => p.active !== false && !presentIds.has(p.id))
     .map((p) => ({ id: p.id, label: displayName(p) }));
   return [...confirmed, ...rest];
 }
@@ -2009,10 +2047,13 @@ function renderAdminPartidoDetalle(matchId) {
 // partido (matches.motmPlayerId), y los partidos ya están siempre en
 // memoria por el listener en vivo — no hace falta pedirle nada más a
 // Firestore para armar este ranking.
-function motmRanking() {
+// matchFilter (opcional) recibe el objeto match y devuelve true/false — se
+// usa para poder pedir el ranking solo del torneo actual (ver loadStats).
+function motmRanking(matchFilter) {
   const counts = new Map();
   for (const m of state.matches) {
     if (m.status !== "JUGADO" || !m.motmPlayerId) continue;
+    if (matchFilter && !matchFilter(m)) continue;
     const entry = counts.get(m.motmPlayerId) || { id: m.motmPlayerId, count: 0 };
     entry.count += 1;
     counts.set(m.motmPlayerId, entry);
@@ -2022,15 +2063,70 @@ function motmRanking() {
 
 // Ranking de lavado del bolso: mismo mecanismo que la figura del partido
 // (campo en el propio documento del partido, matches.bolsoPlayerId).
-function bolsoRanking() {
+function bolsoRanking(matchFilter) {
   const counts = new Map();
   for (const m of state.matches) {
     if (m.status !== "JUGADO" || !m.bolsoPlayerId) continue;
+    if (matchFilter && !matchFilter(m)) continue;
     const entry = counts.get(m.bolsoPlayerId) || { id: m.bolsoPlayerId, count: 0 };
     entry.count += 1;
     counts.set(m.bolsoPlayerId, entry);
   }
   return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
+// Tabla "por jugador" (asistencia, figuras, bolso, goles, asistencias,
+// tarjetas) — la misma plantilla sirve tanto para la versión de todo el
+// torneo actual como para la histórica de siempre, cada una con su propio
+// título/bajada y su propio objeto de stats (state.statsTorneo / state.stats).
+function playersStatsTable(statsObj, title, description) {
+  return `
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
+      <h2 class="font-semibold text-gray-900">${title}</h2>
+      <p class="mb-3 text-xs text-gray-400">${description}</p>
+      ${state.statsError ? `
+        <p class="text-sm text-red-600">No se pudieron cargar las estadísticas: ${escapeHtml(state.statsError)}</p>
+        <p class="mt-1 text-xs text-gray-400">Si el mensaje dice "Missing or insufficient permissions", probablemente falta publicar el <code>firestore.rules</code> actualizado en la consola de Firebase (pestaña Reglas).</p>
+        <button onclick="retryLoadStats()" class="mt-2 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200">Reintentar</button>
+      ` : !statsObj ? `<p class="text-sm text-gray-400">Cargando…</p>` : (statsObj.porJugador.length === 0 ? `
+        <p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>
+      ` : `
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-gray-500">
+                <th class="py-1 pr-2">Jugador</th>
+                <th class="py-1 px-1 text-center">Asistencia</th>
+                <th class="py-1 px-1 text-center">🏅</th>
+                <th class="py-1 px-1 text-center">🧺</th>
+                <th class="py-1 px-1 text-center">⚽</th>
+                <th class="py-1 px-1 text-center">👟</th>
+                <th class="py-1 px-1 text-center">🟨</th>
+                <th class="py-1 px-1 text-center">🟥</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${statsObj.porJugador.map((row) => `
+                <tr class="text-gray-800">
+                  <td class="py-1.5 pr-2">${displayNameWithCaptain(state.playersById[row.id])}</td>
+                  <td class="py-1.5 px-1 text-center">
+                    ${row.presenciaPct === null ? "-" : `${row.presenciaPct}%`}
+                    <span class="block text-[10px] leading-tight text-gray-400">${row.presencias}/${row.totalJugados}</span>
+                  </td>
+                  <td class="py-1.5 px-1 text-center">${row.figuras}</td>
+                  <td class="py-1.5 px-1 text-center">${row.bolsos}</td>
+                  <td class="py-1.5 px-1 text-center">${row.goles}</td>
+                  <td class="py-1.5 px-1 text-center">${row.asistencias}</td>
+                  <td class="py-1.5 px-1 text-center">${row.amarillas}</td>
+                  <td class="py-1.5 px-1 text-center">${row.rojas}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `)}
+    </section>
+  `;
 }
 
 function renderEstadisticas() {
@@ -2117,6 +2213,12 @@ function renderEstadisticas() {
       `}
       </div>
     </section>
+
+    ${playersStatsTable(
+      state.statsTorneo,
+      "👥 Jugadores de este torneo",
+      `Lo mismo que en "📈 Históricas", pero contando solo los partidos de ${escapeHtml(TORNEO_NOMBRE)}. Se reinicia solo apenas arranque el próximo torneo — los datos de este quedan guardados para siempre en "Históricas".`
+    )}
   `;
 
   const historicasView = `
@@ -2125,51 +2227,11 @@ function renderEstadisticas() {
       ${capitan ? `<p class="mt-1 flex items-center gap-1.5 text-sm text-gray-600">${captainBadge()} Capitán actual: <span class="font-medium text-gray-900">${displayName(capitan)}</span></p>` : ""}
     </div>
 
-    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
-      <h2 class="font-semibold text-gray-900">👥 Todos los jugadores</h2>
-      <p class="mb-3 text-xs text-gray-400">Asistencia = % de los partidos jugados por el equipo a los que fue cada uno, según la lista de "✅ Asistencia" que carga un admin en cada partido (no el voto "Voy" de antes de jugar), con la cantidad exacta debajo. No incluye al cuerpo técnico. 🏅 = veces elegido figura del partido. 🧺 = veces que se llevó el bolso a lavar.</p>
-      ${state.statsError ? `
-        <p class="text-sm text-red-600">No se pudieron cargar las estadísticas: ${escapeHtml(state.statsError)}</p>
-        <p class="mt-1 text-xs text-gray-400">Si el mensaje dice "Missing or insufficient permissions", probablemente falta publicar el <code>firestore.rules</code> actualizado en la consola de Firebase (pestaña Reglas).</p>
-        <button onclick="retryLoadStats()" class="mt-2 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200">Reintentar</button>
-      ` : !s ? `<p class="text-sm text-gray-400">Cargando…</p>` : (s.porJugador.length === 0 ? `
-        <p class="text-sm text-gray-400">Todavía no hay jugadores cargados.</p>
-      ` : `
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-xs text-gray-500">
-                <th class="py-1 pr-2">Jugador</th>
-                <th class="py-1 px-1 text-center">Asistencia</th>
-                <th class="py-1 px-1 text-center">🏅</th>
-                <th class="py-1 px-1 text-center">🧺</th>
-                <th class="py-1 px-1 text-center">⚽</th>
-                <th class="py-1 px-1 text-center">👟</th>
-                <th class="py-1 px-1 text-center">🟨</th>
-                <th class="py-1 px-1 text-center">🟥</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${s.porJugador.map((row) => `
-                <tr class="text-gray-800">
-                  <td class="py-1.5 pr-2">${displayNameWithCaptain(state.playersById[row.id])}</td>
-                  <td class="py-1.5 px-1 text-center">
-                    ${row.presenciaPct === null ? "-" : `${row.presenciaPct}%`}
-                    <span class="block text-[10px] leading-tight text-gray-400">${row.presencias}/${row.totalJugados}</span>
-                  </td>
-                  <td class="py-1.5 px-1 text-center">${row.figuras}</td>
-                  <td class="py-1.5 px-1 text-center">${row.bolsos}</td>
-                  <td class="py-1.5 px-1 text-center">${row.goles}</td>
-                  <td class="py-1.5 px-1 text-center">${row.asistencias}</td>
-                  <td class="py-1.5 px-1 text-center">${row.amarillas}</td>
-                  <td class="py-1.5 px-1 text-center">${row.rojas}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      `)}
-    </section>
+    ${playersStatsTable(
+      s,
+      "👥 Todos los jugadores",
+      `Asistencia = % de los partidos jugados por el equipo a los que fue cada uno, según la lista de "✅ Asistencia" que carga un admin en cada partido (no el voto "Voy" de antes de jugar), con la cantidad exacta debajo. No incluye al cuerpo técnico. 🏅 = veces elegido figura del partido. 🧺 = veces que se llevó el bolso a lavar.`
+    )}
 
     ${state.isAdmin ? `
       <details class="rounded-2xl bg-white p-4 text-xs text-gray-500 shadow-sm ring-1 ring-gray-100">
