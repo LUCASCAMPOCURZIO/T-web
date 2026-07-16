@@ -1087,12 +1087,16 @@ window.setBolso = function (matchId, playerId) {
 // El total recaudado combina lo que pagaron los jugadores (subcolección
 // "payments") y lo que pagaron los invitados sueltos del partido
 // (subcolección "guests") — ambas son de solo-lectura-para-admin, así que
-// el total se guarda además como campo público en el propio documento del
-// partido (matches.totalRecaudado) para que todo el equipo lo vea sin
-// necesidad de poder leer el detalle. El total en sí lo recalculan y
-// guardan los listeners de payments/guests (más arriba, syncTotalRecaudado)
-// apenas cambia cualquiera de las dos colecciones — acá solo escribimos el
-// pago puntual, no hace falta (ni conviene) tocar el total desde acá.
+// el total se guarda además como campo en el propio documento del partido
+// (matches.totalRecaudado). Ese campo en sí queda técnicamente legible por
+// cualquiera a nivel de Firestore (igual que el resto del documento del
+// partido), pero en la pantalla principal solo se lo mostramos al admin
+// (Lucas pidió que los jugadores no vean cuánto se juntó) — ver el
+// "state.isAdmin &&" delante de esta tarjeta en renderDashboard(). El
+// total en sí lo recalculan y guardan los listeners de payments/guests
+// (más arriba, syncTotalRecaudado) apenas cambia cualquiera de las dos
+// colecciones — acá solo escribimos el pago puntual, no hace falta (ni
+// conviene) tocar el total desde acá.
 
 // Plata de la cancha: cuánto pagó cada jugador ese partido.
 window.setPayment = function (matchId, playerId, amountStr) {
@@ -1747,7 +1751,7 @@ function renderDashboard() {
 
         ${commentsWallCard(match.id, state.nextMatchComments, "Comentarios")}
       `}
-      ${lastPlayed && lastPlayed.totalRecaudado != null ? `
+      ${state.isAdmin && lastPlayed && lastPlayed.totalRecaudado != null ? `
         <div class="flex items-center gap-2 rounded-2xl bg-white p-4 text-sm text-gray-700 shadow-sm ring-1 ring-gray-100">
           <span class="text-lg">💰</span>
           ${lastPlayed.canchaCosto ? `
@@ -1755,6 +1759,7 @@ function renderDashboard() {
           ` : `
             Se juntaron <span class="font-semibold text-gray-900">$${lastPlayed.totalRecaudado}</span> vs ${escapeHtml(lastPlayed.opponent)}
           `}
+          <span class="ml-auto shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400">Solo admin</span>
         </div>
       ` : ""}
       ${showLastPlayedRecap ? motmVoteCard(lastPlayed) : ""}
@@ -2082,7 +2087,7 @@ function renderAdminPartidoDetalle(matchId) {
 
       <div id="payments-card" class="rounded-2xl bg-white p-5 shadow-sm">
         <h3 class="mb-1 font-semibold text-gray-900">💰 Plata del partido</h3>
-        <p class="mb-3 text-xs text-gray-400">Cuánto pagó cada uno de los que asistieron (marcá primero en "✅ Asistencia" quién estuvo, así solo te aparecen esos acá para cobrarles) — incluye a los invitados sueltos que hayas cargado ahí. Este detalle solo lo ven los admins; el total recaudado sí es público y lo ve todo el equipo.</p>
+        <p class="mb-3 text-xs text-gray-400">Cuánto pagó cada uno de los que asistieron (marcá primero en "✅ Asistencia" quién estuvo, así solo te aparecen esos acá para cobrarles) — incluye a los invitados sueltos que hayas cargado ahí. Esto (y el total recaudado) solo lo ven los admins, no los jugadores.</p>
         ${presentPlayers.length === 0 && guests.length === 0 ? `
           <p class="text-sm text-gray-400">Todavía no hay nadie marcado como presente. Tildá a los que fueron en "✅ Asistencia" arriba y van a aparecer acá para cobrarles.</p>
         ` : `
